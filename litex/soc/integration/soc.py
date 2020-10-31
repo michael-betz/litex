@@ -1424,3 +1424,56 @@ class LiteXSoC(SoC):
             dma_bus = self.bus if not hasattr(self, "dma_bus") else self.dma_bus
             dma_bus.add_master("sdmem2block", master=bus)
             self.csr.add("sdmem2block", use_loc_if_exists=True)
+
+    # Add SATA -------------------------------------------------------------------------------------
+    def add_sata(self, name="sata", phy=None, mode="read+write"):
+        # Imports
+        from litesata.core import LiteSATACore
+        from litesata.frontend.arbitration import LiteSATACrossbar
+        from litesata.frontend.dma import LiteSATASector2MemDMA, LiteSATAMem2SectorDMA
+
+        # Checks
+        assert mode in ["read", "write", "read+write"]
+        sata_clk_freqs = {
+            "gen1":  75e6,
+            "gen2": 150e6,
+            "gen3": 300e6,
+        }
+        sata_clk_freq = sata_clk_freqs[phy.gen]
+        assert self.clk_freq >= sata_clk_freq/2 # FIXME: /2 for 16-bit data-width, add support for 32-bit.
+
+        # Core
+        self.submodules.sata_core = LiteSATACore(phy)
+
+        # Crossbar
+        self.submodules.sata_crossbar = LiteSATACrossbar(self.sata_core)
+
+        # Sector2Mem DMA
+        if "read" in mode:
+            bus = wishbone.Interface(data_width=self.bus.data_width, adr_width=self.bus.address_width)
+            self.submodules.sata_sector2mem = LiteSATASector2MemDMA(
+               port       = self.sata_crossbar.get_port(),
+               bus        = bus,
+               endianness = self.cpu.endianness)
+            dma_bus = self.bus if not hasattr(self, "dma_bus") else self.dma_bus
+            dma_bus.add_master("sata_sector2mem", master=bus)
+            self.csr.add("sata_sector2mem", use_loc_if_exists=True)
+
+        # Mem2Sector DMA
+        if "write" in mode:
+            bus = wishbone.Interface(data_width=self.bus.data_width, adr_width=self.bus.address_width)
+            self.submodules.sata_mem2sector = LiteSATAMem2SectorDMA(
+               bus        = bus,
+               port       = self.sata_crossbar.get_port(),
+               endianness = self.cpu.endianness)
+            dma_bus = self.bus if not hasattr(self, "dma_bus") else self.dma_bus
+            dma_bus.add_master("sata_mem2sector", master=bus)
+            self.csr.add("sata_mem2sector", use_loc_if_exists=True)
+
+        # Timing constraints
+        self.platform.add_period_constraint(self.sata_phy.crg.cd_sata_tx.clk, 1e9/sata_clk_freq)
+        self.platform.add_period_constraint(self.sata_phy.crg.cd_sata_rx.clk, 1e9/sata_clk_freq)
+        self.platform.add_false_path_constraints(
+            self.crg.cd_sys.clk,
+            self.sata_phy.crg.cd_sata_tx.clk,
+            self.sata_phy.crg.cd_sata_rx.clk)
