@@ -23,7 +23,7 @@ uint32_t rd_errors;
 
 __attribute__((unused)) static void cdelay(int i)
 {
-#ifndef CONFIG_SIM_DISABLE_DELAYS
+#ifndef CONFIG_DISABLE_DELAYS
 	while(i > 0) {
 		__asm__ volatile(CONFIG_CPU_NOP);
 		i--;
@@ -66,7 +66,7 @@ static uint32_t pseudo_random_bases[128] = {
 	0x00027e36,0x000e51ae,0x002e7627,0x00275c9f,
 };
 
-static void sdram_bist_loop(uint32_t loop, uint32_t burst_length, uint32_t random) {
+void sdram_bist_loop(uint32_t loop, uint32_t burst_length, uint32_t random) {
 	int i;
 	uint32_t base;
 	uint32_t length;
@@ -84,6 +84,7 @@ static void sdram_bist_loop(uint32_t loop, uint32_t burst_length, uint32_t rando
 			sdram_generator_reset_write(0);
 			sdram_generator_random_write(1); /* Random data */
 			sdram_generator_base_write(base);
+			sdram_generator_end_write(base + length);
 			sdram_generator_length_write(length);
 			cdelay(100);
 		}
@@ -94,6 +95,7 @@ static void sdram_bist_loop(uint32_t loop, uint32_t burst_length, uint32_t rando
 		sdram_checker_reset_write(0);
 		sdram_checker_random_write(1); /* Random data */
 		sdram_checker_base_write(base);
+		sdram_checker_end_write(base + length);
 		sdram_checker_length_write(length);
 		cdelay(100);
 		/* Wait write */
@@ -113,6 +115,7 @@ static void sdram_bist_loop(uint32_t loop, uint32_t burst_length, uint32_t rando
 			sdram_generator_reset_write(0);
 			sdram_generator_random_write(1); /* Random data */
 			sdram_generator_base_write(base);
+			sdram_generator_end_write(base + length);
 			sdram_generator_length_write(length);
 			cdelay(100);
 		}
@@ -127,7 +130,7 @@ static void sdram_bist_loop(uint32_t loop, uint32_t burst_length, uint32_t rando
 
 static uint32_t compute_speed_mibs(uint32_t length, uint32_t ticks) {
 	uint32_t speed;
-	//printf("(%lu, %lu)", length, ticks);
+	//printf("(%u, %u)", length, ticks);
 	speed = length*(CONFIG_CLOCK_FREQUENCY/(1024*1024))/ticks;
 	return speed;
 }

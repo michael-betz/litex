@@ -64,6 +64,9 @@ def get_cpu_mak(cpu, compile_software):
         r = None
         if not isinstance(triple, tuple):
             triple = (triple,)
+        override = os.getenv("LITEX_ENV_CC_TRIPLE")
+        if override:
+            triple = (override,) + triple
         p = get_platform()
         for i in range(len(triple)):
             t = triple[i]
@@ -121,16 +124,27 @@ def get_mem_header(regions):
     r = generated_banner("//")
     r += "#ifndef __GENERATED_MEM_H\n#define __GENERATED_MEM_H\n\n"
     for name, region in regions.items():
-        r += "#ifndef {name}\n".format(name=name.upper())
-        r += "#define {name}_BASE 0x{base:08x}L\n#define {name}_SIZE 0x{size:08x}\n\n".format(
+        r += "#ifndef {name}_BASE\n".format(name=name.upper())
+        r += "#define {name}_BASE 0x{base:08x}L\n#define {name}_SIZE 0x{size:08x}\n".format(
             name=name.upper(), base=region.origin, size=region.length)
-        r += "#endif\n"
+        r += "#endif\n\n"
+
+    r += "#ifndef MEM_REGIONS\n"
+    r += "#define MEM_REGIONS \"";
+    for name, region in regions.items():
+        r += f"{name.upper()} {' '*(8-len(name))} 0x{region.origin:08x} 0x{region.size:x} \\n"
+    r = r[:-2]
+    r += "\"\n"
+    r += "#endif\n"
+
     r += "#endif\n"
     return r
 
 def get_soc_header(constants, with_access_functions=True):
     r = generated_banner("//")
     r += "#ifndef __GENERATED_SOC_H\n#define __GENERATED_SOC_H\n"
+
+
     for name, value in constants.items():
         if value is None:
             r += "#define "+name+"\n"
@@ -219,12 +233,33 @@ def get_csr_header(regions, constants, csr_base=None, with_access_functions=True
             for csr in region.obj:
                 nr = (csr.size + region.busword - 1)//region.busword
                 r += _get_rw_functions_c(name + "_" + csr.name, origin, nr, region.busword, alignment,
-                    isinstance(csr, CSRStatus), with_access_functions)
+                    getattr(csr, "read_only", False), with_access_functions)
                 origin += alignment//8*nr
                 if hasattr(csr, "fields"):
                     for field in csr.fields.fields:
-                        r += "#define CSR_"+name.upper()+"_"+csr.name.upper()+"_"+field.name.upper()+"_OFFSET "+str(field.offset)+"\n"
-                        r += "#define CSR_"+name.upper()+"_"+csr.name.upper()+"_"+field.name.upper()+"_SIZE "+str(field.size)+"\n"
+                        offset = str(field.offset)
+                        size = str(field.size)
+                        r += "#define CSR_"+name.upper()+"_"+csr.name.upper()+"_"+field.name.upper()+"_OFFSET "+offset+"\n"
+                        r += "#define CSR_"+name.upper()+"_"+csr.name.upper()+"_"+field.name.upper()+"_SIZE "+size+"\n"
+                        if with_access_functions and csr.size <= 32: # FIXME: Implement extract/read functions for csr.size > 32-bit.
+                            reg_name = name + "_" + csr.name.lower()
+                            field_name = reg_name + "_" + field.name.lower()
+                            r += "static inline uint32_t " + field_name + "_extract(uint32_t oldword) {\n"
+                            r += "\tuint32_t mask = ((1 << " + size + ")-1);\n"
+                            r += "\treturn ( (oldword >> " + offset + ") & mask );\n}\n"
+                            r += "static inline uint32_t " + field_name + "_read(void) {\n"
+                            r += "\tuint32_t word = " + reg_name + "_read();\n"
+                            r += "\treturn " + field_name + "_extract(word);\n"
+                            r += "}\n"
+                            if not getattr(csr, "read_only", False):
+                                r += "static inline uint32_t " + field_name + "_replace(uint32_t oldword, uint32_t plain_value) {\n"
+                                r += "\tuint32_t mask = ((1 << " + size + ")-1);\n"
+                                r += "\treturn (oldword & (~(mask << " + offset + "))) | (mask & plain_value)<< " + offset + " ;\n}\n"
+                                r += "static inline void " + field_name + "_write(uint32_t plain_value) {\n"
+                                r += "\tuint32_t oldword = " + reg_name + "_read();\n"
+                                r += "\tuint32_t newword = " + field_name + "_replace(oldword, plain_value);\n"
+                                r += "\t" + reg_name + "_write(newword);\n"
+                                r += "}\n"
 
     r += "\n#endif\n"
     return r
@@ -308,7 +343,7 @@ def get_csr_svd(soc, vendor="litex", name="soc", description=None):
         svd.append('                    <addressOffset>0x{:04x}</addressOffset>'.format(csr_address))
         svd.append('                    <resetValue>0x{:02x}</resetValue>'.format(csr.reset_value))
         svd.append('                    <size>{}</size>'.format(length))
-        svd.append('                    <access>{}</access>'.format(csr.access))
+        # svd.append('                    <access>{}</access>'.format(csr.access))  # 'access' is a lie: "read-only" registers can legitimately change state based on a write, and is in fact used to handle the "pending" field in events
         csr_address = csr_address + 4
         svd.append('                    <fields>')
         if hasattr(csr, "fields") and len(csr.fields) > 0:

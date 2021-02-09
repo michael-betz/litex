@@ -11,6 +11,7 @@
 
 #include <generated/csr.h>
 #include <generated/mem.h>
+#include <generated/soc.h>
 #include <system.h>
 
 #include <libfatfs/ff.h>
@@ -449,11 +450,7 @@ int sdcard_init(void) {
 		return 0;
 
 	/* Switch speed */
-	if (sdcard_switch(SD_SWITCH_SWITCH, SD_GROUP_ACCESSMODE, SD_SPEED_SDR50) != SD_OK)
-		return 0;
-
-	/* Switch driver strength */
-	if (sdcard_switch(SD_SWITCH_SWITCH, SD_GROUP_DRIVERSTRENGTH, SD_DRIVER_STRENGTH_D) != SD_OK)
+	if (sdcard_switch(SD_SWITCH_SWITCH, SD_GROUP_ACCESSMODE, SD_SPEED_SDR25) != SD_OK)
 		return 0;
 
 	/* Send SCR */
@@ -476,7 +473,7 @@ void sdcard_read(uint32_t block, uint32_t count, uint8_t* buf)
 {
 	/* Initialize DMA Writer */
 	sdblock2mem_dma_enable_write(0);
-	sdblock2mem_dma_base_write((uint64_t) buf);
+	sdblock2mem_dma_base_write((uint64_t)(uintptr_t) buf);
 	sdblock2mem_dma_length_write(512*count);
 	sdblock2mem_dma_enable_write(1);
 
@@ -492,11 +489,9 @@ void sdcard_read(uint32_t block, uint32_t count, uint8_t* buf)
 	sdcard_stop_transmission();
 
 #ifndef CONFIG_CPU_HAS_DMA_BUS
-	/* Flush CPU caches */
+	/* Flush caches */
 	flush_cpu_dcache();
-#ifdef CONFIG_L2_SIZE
 	flush_l2_cache();
-#endif
 #endif
 }
 
@@ -509,7 +504,7 @@ void sdcard_write(uint32_t block, uint32_t count, uint8_t* buf)
 	while (count--) {
 		/* Initialize DMA Reader */
 		sdmem2block_dma_enable_write(0);
-		sdmem2block_dma_base_write((uint64_t) buf);
+		sdmem2block_dma_base_write((uint64_t)(uintptr_t) buf);
 		sdmem2block_dma_length_write(512);
 		sdmem2block_dma_enable_write(1);
 

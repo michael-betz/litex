@@ -45,6 +45,7 @@ class GPIOInOut(Module):
 
 class GPIOTristate(Module, AutoCSR):
     def __init__(self, pads):
+        assert isinstance(pads, Signal)
         nbits     = len(pads)
         self._oe  = CSRStorage(nbits, description="GPIO Tristate(s) Control.")
         self._in  = CSRStatus(nbits,  description="GPIO Input(s) Status.")
@@ -52,12 +53,9 @@ class GPIOTristate(Module, AutoCSR):
 
         # # #
 
-        _pads = Signal(nbits)
-        self.comb += _pads.eq(pads)
-
         for i in range(nbits):
             t = TSTriple()
-            self.specials += t.get_tristate(_pads[i])
+            self.specials += t.get_tristate(pads[i])
             self.comb += t.oe.eq(self._oe.storage[i])
             self.comb += t.o.eq(self._out.storage[i])
             self.specials += MultiReg(t.i, self._in.status[i])

@@ -160,8 +160,9 @@ class SoCCore(LiteXSoC):
             reset_address = None if integrated_rom_size else cpu_reset_address)
 
         # Add User's interrupts
-        for name, loc in self.interrupt_map.items():
-            self.irq.add(name, loc)
+        if self.irq.enabled:
+            for name, loc in self.interrupt_map.items():
+                self.irq.add(name, loc)
 
         # Add integrated ROM
         if integrated_rom_size:
@@ -310,6 +311,9 @@ def soc_core_args(parser):
     # Timer parameters
     parser.add_argument("--no-timer", action="store_true",
                         help="Disable Timer (default=False)")
+    parser.add_argument("--timer-uptime", action="store_true",
+                        help="Add an uptime register to the timer (default=False)")
+
     # Controller parameters
     parser.add_argument("--no-ctrl", action="store_true",
                         help="Disable Controller (default=False)")

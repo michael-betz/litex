@@ -22,17 +22,18 @@
 int sata_init(void) {
 	uint16_t timeout;
 
+
 	for (timeout=10; timeout>0; timeout--) {
-		/* Initialize SATA PHY */
+		/* Check SATA PHY status */
+		if (sata_phy_status_read() & 0x1)
+			return 1;
+
+		/* Reset SATA PHY */
 		sata_phy_enable_write(0);
 		sata_phy_enable_write(1);
 
 		/* Wait for 10ms */
 		busy_wait(10);
-
-		/* Check SATA PHY status */
-		if (sata_phy_status_read() & 0x1)
-			return 1;
 	}
 
 	return 0;
@@ -50,7 +51,7 @@ void sata_read(uint32_t sector, uint32_t count, uint8_t* buf)
 	for (i=0; i<count; i++) {
 		uint8_t done = 0;
 		while (done == 0) {
-			sata_sector2mem_base_write((uint64_t) buf);
+			sata_sector2mem_base_write((uint64_t)(uintptr_t) buf);
 			sata_sector2mem_sector_write(sector + i);
 			sata_sector2mem_start_write(1);
 			while ((sata_sector2mem_done_read() & 0x1) == 0);
@@ -61,11 +62,9 @@ void sata_read(uint32_t sector, uint32_t count, uint8_t* buf)
 	}
 
 #ifndef CONFIG_CPU_HAS_DMA_BUS
-	/* Flush CPU caches */
+	/* Flush caches */
 	flush_cpu_dcache();
-#ifdef CONFIG_L2_SIZE
 	flush_l2_cache();
-#endif
 #endif
 }
 
@@ -81,7 +80,7 @@ void sata_write(uint32_t sector, uint32_t count, uint8_t* buf)
 	for (i=0; i<count; i++) {
 		uint8_t done = 0;
 		while (done == 0) {
-			sata_mem2sector_base_write((uint64_t) buf);
+			sata_mem2sector_base_write((uint64_t)(uintptr_t) buf);
 			sata_mem2sector_sector_write(sector + i);
 			sata_mem2sector_start_write(1);
 			while ((sata_sector2mem_done_read() & 0x1) == 0);
