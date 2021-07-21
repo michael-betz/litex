@@ -166,6 +166,18 @@ static void send_packet(void)
 static unsigned char my_mac[6];
 static unsigned int my_ip;
 
+void udp_set_ip(unsigned int ip)
+{
+	my_ip = ip;
+}
+
+void udp_set_mac(const unsigned char *macaddr)
+{
+	int i;
+	for(i=0;i<6;i++)
+    		my_mac[i] = macaddr[i];
+}
+
 /* ARP cache - one entry only */
 static unsigned char cached_mac[6];
 static unsigned int cached_ip;
@@ -420,9 +432,8 @@ void udp_start(const unsigned char *macaddr, unsigned int ip)
 	ethmac_sram_reader_ev_pending_write(ETHMAC_EV_SRAM_READER);
 	ethmac_sram_writer_ev_pending_write(ETHMAC_EV_SRAM_WRITER);
 
-	for(i=0;i<6;i++)
-		my_mac[i] = macaddr[i];
-	my_ip = ip;
+	udp_set_ip(ip);
+	udp_set_mac(macaddr);
 
 	cached_ip = 0;
 	for(i=0;i<6;i++)
@@ -452,10 +463,12 @@ void eth_init(void)
 {
 	printf("Ethernet init...\n");
 #ifdef CSR_ETHPHY_CRG_RESET_ADDR
+#ifndef ETH_PHY_NO_RESET
 	ethphy_crg_reset_write(1);
 	busy_wait(200);
 	ethphy_crg_reset_write(0);
 	busy_wait(200);
+#endif
 #endif
 }
 

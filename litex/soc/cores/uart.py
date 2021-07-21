@@ -31,111 +31,131 @@ class UARTInterface:
 
 # RS232 PHY ----------------------------------------------------------------------------------------
 
-class RS232PHYInterface(UARTInterface):
-    pass
+RS232_IDLE  = 1
+RS232_START = 0
+RS232_STOP  = 1
 
-class RS232PHYRX(Module):
-    def __init__(self, pads, tuning_word):
-        self.source = stream.Endpoint([("data", 8)])
+class RS232PHYInterface(UARTInterface): pass
+
+
+class RS232ClkPhaseAccum(Module):
+    def __init__(self, tuning_word, mode="tx"):
+        assert mode in ["tx", "rx"]
+        self.enable = Signal()
+        self.tick   = Signal()
 
         # # #
 
-        rx_clken    = Signal()
-        rx_clkphase = Signal(32, reset_less=True)
-
-        rx          = Signal()
-        rx_r        = Signal()
-        rx_reg      = Signal(8, reset_less=True)
-        rx_bitcount = Signal(4, reset_less=True)
-        rx_busy     = Signal()
-        rx_done     = self.source.valid
-        rx_data     = self.source.data
-        self.specials += MultiReg(pads.rx, rx)
-        self.sync += [
-            rx_done.eq(0),
-            rx_r.eq(rx),
-            If(~rx_busy,
-                If(~rx & rx_r,  # look for start bit
-                    rx_busy.eq(1),
-                    rx_bitcount.eq(0),
-                )
-            ).Else(
-                If(rx_clken,
-                    rx_bitcount.eq(rx_bitcount + 1),
-                    If(rx_bitcount == 0,
-                        If(rx,  # verify start bit
-                            rx_busy.eq(0)
-                        )
-                    ).Elif(rx_bitcount == 9,
-                        rx_busy.eq(0),
-                        If(rx,  # verify stop bit
-                            rx_data.eq(rx_reg),
-                            rx_done.eq(1)
-                        )
-                    ).Else(
-                        rx_reg.eq(Cat(rx_reg[1:], rx))
-                    )
-                )
-            )
-        ]
-        self.sync += [
-            If(rx_busy,
-                Cat(rx_clkphase, rx_clken).eq(rx_clkphase + tuning_word)
-            ).Else(
-                Cat(rx_clkphase, rx_clken).eq(2**31)
-            )
-        ]
+        phase = Signal(32, reset_less=True)
+        self.sync += Cat(phase, self.tick).eq(tuning_word if mode == "tx" else 2**31)
+        self.sync += If(self.enable, Cat(phase, self.tick).eq(phase + tuning_word))
 
 
 class RS232PHYTX(Module):
     def __init__(self, pads, tuning_word):
-        self.sink = stream.Endpoint([("data", 8)])
+        self.sink = sink = stream.Endpoint([("data", 8)])
 
         # # #
 
-        tx_clken    = Signal()
-        tx_clkphase = Signal(32, reset_less=True)
+        data  = Signal(8, reset_less=True)
+        count = Signal(4, reset_less=True)
 
-        pads.tx.reset = 1
+        # Clock Phase Accumulator.
+        clk_phase_accum = RS232ClkPhaseAccum(tuning_word, mode="tx")
+        self.submodules += clk_phase_accum
 
-        tx_reg      = Signal(8, reset_less=True)
-        tx_bitcount = Signal(4, reset_less=True)
-        tx_busy     = Signal()
-        self.sync += [
-            self.sink.ready.eq(0),
-            If(self.sink.valid & ~tx_busy & ~self.sink.ready,
-                tx_reg.eq(self.sink.data),
-                tx_bitcount.eq(0),
-                tx_busy.eq(1),
-                pads.tx.eq(0)
-            ).Elif(tx_clken & tx_busy,
-                tx_bitcount.eq(tx_bitcount + 1),
-                If(tx_bitcount == 8,
-                    pads.tx.eq(1)
-                ).Elif(tx_bitcount == 9,
-                    pads.tx.eq(1),
-                    tx_busy.eq(0),
-                    self.sink.ready.eq(1),
-                ).Else(
-                    pads.tx.eq(tx_reg[0]),
-                    tx_reg.eq(Cat(tx_reg[1:], 0))
+
+        # FSM
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.act("IDLE",
+            # Reset Count and set TX to Idle.
+            NextValue(count,   0),
+            NextValue(pads.tx, RS232_IDLE),
+            # Wait for TX data to transmit.
+            If(sink.valid,
+                NextValue(pads.tx, RS232_START),
+                NextValue(data, sink.data),
+                NextState("RUN")
+            )
+        )
+        fsm.act("RUN",
+            # Enable Clock Phase Accumulator.
+            clk_phase_accum.enable.eq(1),
+            # On Clock Phase Accumulator tick:
+            If(clk_phase_accum.tick,
+                # Set TX data.
+                NextValue(pads.tx, data),
+                # Increment Count.
+                NextValue(count, count + 1),
+                # Shift TX data.
+                NextValue(data, Cat(data[1:], RS232_STOP)),
+                # When 10-bit have been transmitted...
+                If(count == (10 - 1),
+                    # Ack sink and return to Idle.
+                    sink.ready.eq(1),
+                    NextState("IDLE")
                 )
             )
-        ]
-        self.sync += [
-            If(tx_busy,
-                Cat(tx_clkphase, tx_clken).eq(tx_clkphase + tuning_word)
-            ).Else(
-                Cat(tx_clkphase, tx_clken).eq(tuning_word)
+        )
+
+
+class RS232PHYRX(Module):
+    def __init__(self, pads, tuning_word):
+        self.source = source = stream.Endpoint([("data", 8)])
+
+        # # #
+
+        data  = Signal(8, reset_less=True)
+        count = Signal(4, reset_less=True)
+
+        # Clock Phase Accumulator.
+        clk_phase_accum = RS232ClkPhaseAccum(tuning_word, mode="rx")
+        self.submodules += clk_phase_accum
+
+        # Resynchronize pads.rx and generate delayed version.
+        rx   = Signal()
+        rx_d = Signal()
+        self.specials += MultiReg(pads.rx, rx)
+        self.sync += rx_d.eq(rx)
+
+        # FSM
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.act("IDLE",
+            # Reset Count.
+            NextValue(count, 0),
+            # Wait for RX Start bit.
+            If((rx == RS232_START) & (rx_d == RS232_IDLE),
+                NextState("RUN")
             )
-        ]
+        )
+        fsm.act("RUN",
+            # Enable Clock Phase Accumulator.
+            clk_phase_accum.enable.eq(1),
+            # On Clock Phase Accumulator tick:
+            If(clk_phase_accum.tick,
+                # Increment Count.
+                NextValue(count, count + 1),
+                # Shift RX data.
+                NextValue(data, Cat(data[1:], rx)),
+                # When 10-bit have been received...
+                If(count == (10 - 1),
+                    # Produce data (but only when RX Stop bit is seen).
+                    source.valid.eq(rx == RS232_STOP),
+                    source.data.eq(data),
+                    NextState("IDLE")
+                )
+            )
+        )
 
 
 class RS232PHY(Module, AutoCSR):
-    def __init__(self, pads, clk_freq, baudrate=115200):
-        self._tuning_word  = CSRStorage(32, reset=int((baudrate/clk_freq)*2**32))
-        self.submodules.tx = RS232PHYTX(pads, self._tuning_word.storage)
-        self.submodules.rx = RS232PHYRX(pads, self._tuning_word.storage)
+    def __init__(self, pads, clk_freq, baudrate=115200, with_dynamic_baudrate=False):
+        tuning_word = int((baudrate/clk_freq)*2**32)
+        if with_dynamic_baudrate:
+            self._tuning_word  = CSRStorage(32, reset=tuning_word)
+            tuning_word = self._tuning_word.storage
+        self.submodules.tx = RS232PHYTX(pads, tuning_word)
+        self.submodules.rx = RS232PHYRX(pads, tuning_word)
         self.sink, self.source = self.tx.sink, self.rx.source
 
 
@@ -196,56 +216,84 @@ class UART(Module, AutoCSR, UARTInterface):
             rx_fifo_depth = 16,
             rx_fifo_rx_we = False,
             phy_cd        = "sys"):
-        self._rxtx    = CSR(8)
-        self._txfull  = CSRStatus()
-        self._rxempty = CSRStatus()
+        self._rxtx    = CSR(8) # RX/TX Data.
+        self._txfull  = CSRStatus(description="TX FIFO Full.")
+        self._rxempty = CSRStatus(description="RX FIFO Empty.")
 
         self.submodules.ev = EventManager()
-        self.ev.tx = EventSourceProcess()
-        self.ev.rx = EventSourceProcess()
+        self.ev.tx = EventSourceProcess(edge="rising")
+        self.ev.rx = EventSourceProcess(edge="rising")
         self.ev.finalize()
 
-        self._txempty = CSRStatus()
-        self._rxfull  = CSRStatus()
+        self._txempty = CSRStatus(description="TX FIFO Empty.")
+        self._rxfull  = CSRStatus(description="RX FIFO Full.")
 
         # # #
 
         UARTInterface.__init__(self)
 
         # PHY
+        # ---
         if phy is not None:
-            self.comb += [
-                phy.source.connect(self.sink),
-                self.source.connect(phy.sink)
-            ]
+            self.comb += phy.source.connect(self.sink)
+            self.comb += self.source.connect(phy.sink)
 
         # TX
-        tx_fifo = _get_uart_fifo(tx_fifo_depth, source_cd=phy_cd)
-        self.submodules += tx_fifo
-
+        # --
+        self.submodules.tx_fifo = tx_fifo = _get_uart_fifo(tx_fifo_depth, source_cd=phy_cd)
         self.comb += [
+            # CSR --> FIFO.
             tx_fifo.sink.valid.eq(self._rxtx.re),
             tx_fifo.sink.data.eq(self._rxtx.r),
+
+            # FIFO --> Source.
+            tx_fifo.source.connect(self.source),
+
+            # CSR Status.
             self._txfull.status.eq(~tx_fifo.sink.ready),
             self._txempty.status.eq(~tx_fifo.source.valid),
-            tx_fifo.source.connect(self.source),
-            # Generate TX IRQ when tx_fifo becomes non-full
-            self.ev.tx.trigger.eq(~tx_fifo.sink.ready)
+
+            # IRQ (When FIFO becomes non-full).
+            self.ev.tx.trigger.eq(tx_fifo.sink.ready)
         ]
 
         # RX
-        rx_fifo = _get_uart_fifo(rx_fifo_depth, sink_cd=phy_cd)
-        self.submodules += rx_fifo
-
+        # --
+        self.submodules.rx_fifo = rx_fifo = _get_uart_fifo(rx_fifo_depth, sink_cd=phy_cd)
         self.comb += [
+            # Sink --> FIFO.
             self.sink.connect(rx_fifo.sink),
-            self._rxempty.status.eq(~rx_fifo.source.valid),
-            self._rxfull.status.eq(~rx_fifo.sink.ready),
+
+            # FIFO --> CSR.
             self._rxtx.w.eq(rx_fifo.source.data),
             rx_fifo.source.ready.eq(self.ev.rx.clear | (rx_fifo_rx_we & self._rxtx.we)),
-            # Generate RX IRQ when rx_fifo becomes non-empty
-            self.ev.rx.trigger.eq(~rx_fifo.source.valid)
+
+            # Status.
+            self._rxempty.status.eq(~rx_fifo.source.valid),
+            self._rxfull.status.eq(~rx_fifo.sink.ready),
+
+            # IRQ (When FIFO becomes non-empty).
+            self.ev.rx.trigger.eq(rx_fifo.source.valid)
         ]
+
+    def add_auto_tx_flush(self, sys_clk_freq, timeout=1e-2, interval=2):
+        # Add automatic TX flush when ready is not active for a long time (timeout), this can prevent
+        # stalling the UART (and thus CPU) when the PHY is not operational at startup.
+
+        flush_ep    = stream.Endpoint([("data", 8)])
+        flush_count = Signal(int(log2(interval)))
+
+        # Insert Flush Endpoint between TX FIFO and Source.
+        self.comb += self.tx_fifo.source.connect(flush_ep)
+        self.comb += flush_ep.connect(self.source)
+
+        # Flush TX FIFO when Source.ready is inactive for timeout (with interval cycles between
+        # each ready).
+        self.submodules.timer = timer = WaitTimer(int(timeout*sys_clk_freq))
+        self.comb += timer.wait.eq(~self.source.ready)
+        self.sync += flush_count.eq(flush_count + 1)
+        self.comb += If(timer.done, flush_ep.ready.eq(flush_count == 0))
+        #self.sync += If(flush_ep.valid & flush_ep.ready, Display("%c", flush_ep.data))
 
 # UART Bone ----------------------------------------------------------------------------------------
 
@@ -424,7 +472,7 @@ class UARTCrossover(UART):
     def __init__(self, **kwargs):
         assert kwargs.get("phy", None) == None
         UART.__init__(self, **kwargs)
-        self.submodules.xover = UART(tx_fifo_depth=1, rx_fifo_depth=1, rx_fifo_rx_we=True)
+        self.submodules.xover = UART(tx_fifo_depth=1, rx_fifo_depth=16, rx_fifo_rx_we=True)
         self.comb += [
             self.source.connect(self.xover.sink),
             self.xover.source.connect(self.sink)

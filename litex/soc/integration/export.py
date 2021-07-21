@@ -33,6 +33,10 @@ from litex.soc.doc.module import gather_submodules, ModuleNotDocumented, Documen
 from litex.soc.doc.csr import DocumentedCSRRegion
 from litex.soc.interconnect.csr import _CompoundCSR
 
+# for generating a timestamp in the description field, if none is otherwise given
+import datetime
+import time
+
 # CPU files ----------------------------------------------------------------------------------------
 
 def get_cpu_mak(cpu, compile_software):
@@ -143,7 +147,7 @@ def get_mem_header(regions):
 def get_soc_header(constants, with_access_functions=True):
     r = generated_banner("//")
     r += "#ifndef __GENERATED_SOC_H\n#define __GENERATED_SOC_H\n"
-
+    funcs = ""
 
     for name, value in constants.items():
         if value is None:
@@ -157,8 +161,13 @@ def get_soc_header(constants, with_access_functions=True):
             ctype = "int"
         r += "#define "+name+" "+value+"\n"
         if with_access_functions:
-            r += "static inline "+ctype+" "+name.lower()+"_read(void) {\n"
-            r += "\treturn "+value+";\n}\n"
+            funcs += "static inline "+ctype+" "+name.lower()+"_read(void) {\n"
+            funcs += "\treturn "+value+";\n}\n"
+
+    if with_access_functions:
+        r += "\n#ifndef __ASSEMBLER__\n"
+        r += funcs
+        r += "#endif // !__ASSEMBLER__\n"
 
     r += "\n#endif\n"
     return r
@@ -397,6 +406,10 @@ def get_csr_svd(soc, vendor="litex", name="soc", description=None):
     svd.append('    <name>{}</name>'.format(name.upper()))
     if description is not None:
         svd.append('    <description><![CDATA[{}]]></description>'.format(reflow(description)))
+    else:
+        fmt = "%Y-%m-%d %H:%M:%S"
+        build_time = datetime.datetime.fromtimestamp(time.time()).strftime(fmt)
+        svd.append('    <description><![CDATA[{}]]></description>'.format(reflow("Litex SoC " + build_time)))
     svd.append('')
     svd.append('    <addressUnitBits>8</addressUnitBits>')
     svd.append('    <width>32</width>')
@@ -463,8 +476,9 @@ def get_csr_svd(soc, vendor="litex", name="soc", description=None):
             svd.append('            </interrupt>')
         svd.append('        </peripheral>')
     svd.append('    </peripherals>')
+    svd.append('    <vendorExtensions>')
+
     if len(soc.mem_regions) > 0:
-        svd.append('    <vendorExtensions>')
         svd.append('        <memoryRegions>')
         for region_name, region in soc.mem_regions.items():
             svd.append('            <memoryRegion>')
@@ -473,7 +487,13 @@ def get_csr_svd(soc, vendor="litex", name="soc", description=None):
             svd.append('                <size>0x{:08X}</size>'.format(region.size))
             svd.append('            </memoryRegion>')
         svd.append('        </memoryRegions>')
-        svd.append('    </vendorExtensions>')
+
+    svd.append('        <constants>')
+    for name, value in soc.constants.items():
+        svd.append('            <constant name="{}" value="{}" />'.format(name, value))
+    svd.append('        </constants>')
+
+    svd.append('    </vendorExtensions>')
     svd.append('</device>')
     return "\n".join(svd)
 

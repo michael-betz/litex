@@ -67,6 +67,9 @@ def _yosys_import_sources(platform):
     for path in platform.verilog_include_paths:
         includes += " -I" + path
     for filename, language, library in platform.sources:
+        # yosys has no such function read_systemverilog
+        if language == "systemverilog":
+            language = "verilog -sv"
         reads.append("read_{}{} {}".format(
             language, includes, filename))
     return "\n".join(reads)
@@ -174,16 +177,7 @@ def _run_script(script):
 
 class LatticeTrellisToolchain:
     attr_translate = {
-        # FIXME: document
         "keep": ("keep", "true"),
-        "no_retiming":      None,
-        "async_reg":        None,
-        "mr_ff":            None,
-        "mr_false_path":    None,
-        "ars_ff1":          None,
-        "ars_ff2":          None,
-        "ars_false_path":   None,
-        "no_shreg_extract": None
     }
 
     special_overrides = common.lattice_ecp5_trellis_special_overrides

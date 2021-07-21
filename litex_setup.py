@@ -44,6 +44,8 @@ repos = [
 
     # Optional LiteX data
     ("pythondata-misc-tapcfg",     ("https://github.com/litex-hub/", False, True, None)),
+    ("pythondata-misc-opentitan",  ("https://github.com/litex-hub/", False, True, None)),
+    ("pythondata-misc-usb_ohci",   ("https://github.com/litex-hub/", False, True, None)),
     ("pythondata-cpu-lm32",        ("https://github.com/litex-hub/", False, True, None)),
     ("pythondata-cpu-mor1kx",      ("https://github.com/litex-hub/", False, True, None)),
     ("pythondata-cpu-picorv32",    ("https://github.com/litex-hub/", False, True, None)),
@@ -89,11 +91,6 @@ def sifive_riscv_download():
     shutil.unpack_archive(fn)
 
 # Setup --------------------------------------------------------------------------------------------
-
-if os.environ.get("TRAVIS", "") == "true":
-    # Ignore `ssl.SSLCertVerificationError` on CI.
-    import ssl
-    ssl._create_default_https_context = ssl._create_unverified_context
 
 if len(sys.argv) < 2:
     print("Available commands:")
