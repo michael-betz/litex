@@ -11,8 +11,8 @@ import urllib.request
 
 current_path = os.path.abspath(os.curdir)
 # Check location (is litex_setup.py executed inside a cloned LiteX repository or alongside?)
-if os.path.exists(".gitignore"):
-    current_path = os.path.join(current_path, "../")
+# if os.path.exists(".gitignore"):
+#     current_path = os.path.join(current_path, "../")
 
 # Repositories -------------------------------------------------------------------------------------
 
@@ -24,7 +24,7 @@ repos = [
 
     # LiteX SoC builder
     ("pythondata-software-compiler_rt", ("https://github.com/litex-hub/",     False, True, None)),
-    ("litex",                           ("https://github.com/enjoy-digital/", False, True, None)),
+    # ("litex",                           ("https://github.com/enjoy-digital/", False, True, None)),
 
     # LiteX cores ecosystem
     ("liteeth",      ("https://github.com/enjoy-digital/", False, True, None)),
@@ -35,12 +35,12 @@ repos = [
     ("liteiclink",   ("https://github.com/enjoy-digital/", False, True, None)),
     ("litevideo",    ("https://github.com/enjoy-digital/", False, True, None)),
     ("litescope",    ("https://github.com/enjoy-digital/", False, True, None)),
-    ("litejesd204b", ("https://github.com/enjoy-digital/", False, True, None)),
+    ("litejesd204b", ("https://github.com/yetifrisstlama/", False, True, None)),
     ("litespi",      ("https://github.com/litex-hub/",     False, True, None)),
     ("litehyperbus", ("https://github.com/litex-hub/",     False, True, None)),
 
     # LiteX boards support
-    ("litex-boards", ("https://github.com/litex-hub/",     False, True, None)),
+    ("litex-boards", ("https://github.com/yetifrisstlama/",     False, True, None)),
 
     # Optional LiteX data
     ("pythondata-misc-tapcfg",     ("https://github.com/litex-hub/", False, True, None)),
@@ -103,22 +103,22 @@ if len(sys.argv) < 2:
 
 # Check/Update litex_setup.py
 
-litex_setup_url = "https://raw.githubusercontent.com/enjoy-digital/litex/master/litex_setup.py"
-current_sha1 = hashlib.sha1(open(os.path.realpath(__file__)).read().encode("utf-8")).hexdigest()
-print("[checking litex_setup.py]...")
-try:
-    import requests
-    r = requests.get(litex_setup_url)
-    if r.status_code != 404:
-        upstream_sha1 = hashlib.sha1(r.content).hexdigest()
-        if current_sha1 != upstream_sha1:
-            if "dev" not in sys.argv[1:]:
-                print("[updating litex_setup.py]...")
-                with open(os.path.realpath(__file__), "wb") as f:
-                    f.write(r.content)
-                os.execl(sys.executable, sys.executable, *sys.argv)
-except:
-    pass
+# litex_setup_url = "https://raw.githubusercontent.com/enjoy-digital/litex/master/litex_setup.py"
+# current_sha1 = hashlib.sha1(open(os.path.realpath(__file__)).read().encode("utf-8")).hexdigest()
+# print("[checking litex_setup.py]...")
+# try:
+#     import requests
+#     r = requests.get(litex_setup_url)
+#     if r.status_code != 404:
+#         upstream_sha1 = hashlib.sha1(r.content).hexdigest()
+#         if current_sha1 != upstream_sha1:
+#             if "dev" not in sys.argv[1:]:
+#                 print("[updating litex_setup.py]...")
+#                 with open(os.path.realpath(__file__), "wb") as f:
+#                     f.write(r.content)
+#                 os.execl(sys.executable, sys.executable, *sys.argv)
+# except:
+#     pass
 
 # Repositories cloning
 if "init" in sys.argv[1:]:

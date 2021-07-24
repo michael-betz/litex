@@ -179,6 +179,11 @@ class XilinxVivadoToolchain:
                 tcl.append("read_ip " + filename_tcl)
                 tcl.append("upgrade_ip [get_ips {}]".format(ip))
                 tcl.append("generate_target all [get_ips {}]".format(ip))
+
+                # to avoid this warning:
+                # CRITICAL WARNING: [Vivado 12-5447] synth_ip is not supported in project mode, please use non-project mode.
+                tcl.append("set_msg_config -id {Vivado 12-5447} -new_severity {Info}")
+
                 tcl.append("synth_ip [get_ips {}] -force".format(ip))
                 tcl.append("get_files -all -of_objects [get_files {}]".format(filename_tcl))
                 if disable_constraints:
@@ -187,7 +192,8 @@ class XilinxVivadoToolchain:
         # Add constraints
         tcl.append("\n# Add constraints\n")
         tcl.append("read_xdc {}.xdc".format(build_name))
-        tcl.append("set_property PROCESSING_ORDER EARLY [get_files {}.xdc]".format(build_name))
+        # next line breaks clock definitions in PS7 IP .xdc file :(
+        # tcl.append("set_property PROCESSING_ORDER EARLY [get_files {}.xdc]".format(build_name))
 
         # Add pre-synthesis commands
         tcl.append("\n# Add pre-synthesis commands\n")
