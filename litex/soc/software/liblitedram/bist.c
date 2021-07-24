@@ -162,9 +162,9 @@ void sdram_bist(uint32_t burst_length, uint32_t random)
 			printf("%15u %15u %12u %12u\n",
 			compute_speed_mibs(wr_length, wr_ticks),
 			compute_speed_mibs(rd_length, rd_ticks),
-			total_length/(1024*1024),
+			total_length / 1024,
 			total_errors);
-			total_length += wr_length;
+			total_length += wr_length / 1024;
 			total_errors += rd_errors;
 
 			/* Clear length/ticks/errors */
