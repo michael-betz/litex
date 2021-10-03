@@ -233,13 +233,17 @@ class SoCBusHandler(Module):
         for _, search_region in search_regions.items():
             origin = search_region.origin
             while (origin + size) < (search_region.origin + search_region.size_pow2):
+                # Align Origin on Size.
+                if (origin%size):
+                    origin += (origin - origin%size)
+                    continue
                 # Create a Candidate.
                 candidate = SoCRegion(origin=origin, size=size, cached=cached)
                 overlap   = False
                 # Check Candidate does not overlap with allocated existing regions.
                 for _, allocated in self.regions.items():
                     if self.check_regions_overlap({"0": allocated, "1": candidate}) is not None:
-                        origin  = allocated.origin + allocated.size_pow2
+                        origin += size
                         overlap = True
                         break
                 if not overlap:
@@ -894,9 +898,23 @@ class SoC(Module):
             self.cpu.add_cfu(cfu_filename=cfu)
 
         # Update SoC with CPU constraints.
+        # IOs regions.
         for n, (origin, size) in enumerate(self.cpu.io_regions.items()):
             self.bus.add_region("io{}".format(n), SoCIORegion(origin=origin, size=size, cached=False))
-        self.mem_map.update(self.cpu.mem_map) # FIXME
+        # Mapping.
+        if isinstance(self.cpu, cpu.CPUNone):
+            # With CPUNone, give priority to User's mapping.
+            self.mem_map = {**self.cpu.mem_map, **self.mem_map}
+        else:
+            # Override User's mapping with CPU constrainted mapping (and warn User).
+            for n, origin in self.cpu.mem_map.items():
+                if n in self.mem_map.keys():
+                    self.logger.info("CPU {} {} mapping from {} to {}.".format(
+                        colorer("overriding", color="cyan"),
+                        colorer(n),
+                        colorer(f"0x{self.mem_map[n]:x}"),
+                        colorer(f"0x{self.cpu.mem_map[n]:x}")))
+            self.mem_map.update(self.cpu.mem_map)
 
         # Add Bus Masters/CSR/IRQs.
         if not isinstance(self.cpu, (cpu.CPUNone, cpu.Zynq7000)):
@@ -1315,12 +1333,10 @@ class LiteXSoC(SoC):
                         mem_wb  = wishbone.Interface(
                             data_width = self.cpu.mem_axi.data_width,
                             adr_width  = 32-log2_int(self.cpu.mem_axi.data_width//8))
-                        # FIXME: AXI2Wishbone FSMs must be reset with the CPU.
-                        mem_a2w = ResetInserter()(axi.AXI2Wishbone(
+                        mem_a2w = axi.AXI2Wishbone(
                             axi          = self.cpu.mem_axi,
                             wishbone     = mem_wb,
-                            base_address = 0))
-                        self.comb += mem_a2w.reset.eq(ResetSignal() | self.cpu.reset)
+                            base_address = 0)
                         self.submodules += mem_a2w
                         litedram_wb = wishbone.Interface(port.data_width)
                         self.submodules += LiteDRAMWishbone2Native(
@@ -1383,9 +1399,10 @@ class LiteXSoC(SoC):
 
     # Add Ethernet ---------------------------------------------------------------------------------
     def add_ethernet(self, name="ethmac", phy=None, phy_cd="eth", dynamic_ip=False, software_debug=False,
-        nrxslots       = 2,
-        ntxslots       = 2,
-        with_timestamp = False):
+        nrxslots                = 2,
+        ntxslots                = 2,
+        with_timestamp          = False,
+        with_timing_constraints = True):
         # Imports
         from liteeth.mac import LiteEthMAC
         from liteeth.phy.model import LiteEthPHYModel
@@ -1416,14 +1433,6 @@ class LiteXSoC(SoC):
         if self.irq.enabled:
             self.irq.add(name, use_loc_if_exists=True)
 
-        # Timing constraints
-        eth_rx_clk = getattr(phy, "crg", phy).cd_eth_rx.clk
-        eth_tx_clk = getattr(phy, "crg", phy).cd_eth_tx.clk
-        if not isinstance(phy, LiteEthPHYModel):
-            self.platform.add_period_constraint(eth_rx_clk, 1e9/phy.rx_clk_freq)
-            self.platform.add_period_constraint(eth_tx_clk, 1e9/phy.tx_clk_freq)
-            self.platform.add_false_path_constraints(self.crg.cd_sys.clk, eth_rx_clk, eth_tx_clk)
-
         # Dynamic IP (if enabled).
         if dynamic_ip:
             self.add_constant("ETH_DYNAMIC_IP")
@@ -1433,12 +1442,22 @@ class LiteXSoC(SoC):
             self.add_constant("ETH_UDP_TX_DEBUG")
             self.add_constant("ETH_UDP_RX_DEBUG")
 
+        # Timing constraints
+        if with_timing_constraints:
+            eth_rx_clk = getattr(phy, "crg", phy).cd_eth_rx.clk
+            eth_tx_clk = getattr(phy, "crg", phy).cd_eth_tx.clk
+            if not isinstance(phy, LiteEthPHYModel) and not getattr(phy, "model", False):
+                self.platform.add_period_constraint(eth_rx_clk, 1e9/phy.rx_clk_freq)
+                self.platform.add_period_constraint(eth_tx_clk, 1e9/phy.tx_clk_freq)
+                self.platform.add_false_path_constraints(self.crg.cd_sys.clk, eth_rx_clk, eth_tx_clk)
+
     # Add Etherbone --------------------------------------------------------------------------------
     def add_etherbone(self, name="etherbone", phy=None, phy_cd="eth",
-        mac_address  = 0x10e2d5000000,
-        ip_address   = "192.168.1.50",
-        udp_port     = 1234,
-        buffer_depth = 4):
+        mac_address             = 0x10e2d5000000,
+        ip_address              = "192.168.1.50",
+        udp_port                = 1234,
+        buffer_depth            = 4,
+        with_timing_constraints = True):
         # Imports
         from liteeth.core import LiteEthUDPIPCore
         from liteeth.frontend.etherbone import LiteEthEtherbone
@@ -1469,35 +1488,55 @@ class LiteXSoC(SoC):
         self.add_wb_master(etherbone.wishbone.bus)
 
         # Timing constraints
-        eth_rx_clk = getattr(phy, "crg", phy).cd_eth_rx.clk
-        eth_tx_clk = getattr(phy, "crg", phy).cd_eth_tx.clk
-        if not isinstance(phy, LiteEthPHYModel):
-            self.platform.add_period_constraint(eth_rx_clk, 1e9/phy.rx_clk_freq)
-            self.platform.add_period_constraint(eth_tx_clk, 1e9/phy.tx_clk_freq)
-            self.platform.add_false_path_constraints(self.crg.cd_sys.clk, eth_rx_clk, eth_tx_clk)
+        if with_timing_constraints:
+            eth_rx_clk = getattr(phy, "crg", phy).cd_eth_rx.clk
+            eth_tx_clk = getattr(phy, "crg", phy).cd_eth_tx.clk
+            if not isinstance(phy, LiteEthPHYModel) and not getattr(phy, "model", False):
+                self.platform.add_period_constraint(eth_rx_clk, 1e9/phy.rx_clk_freq)
+                self.platform.add_period_constraint(eth_tx_clk, 1e9/phy.tx_clk_freq)
+                self.platform.add_false_path_constraints(self.crg.cd_sys.clk, eth_rx_clk, eth_tx_clk)
 
     # Add SPI Flash --------------------------------------------------------------------------------
-    def add_spi_flash(self, name="spiflash", mode="4x", dummy_cycles=None, clk_freq=None):
-        # Imports.
-        from litex.soc.cores.spi_flash import SpiFlash
+    def add_spi_flash(self, name="spiflash", mode="4x", dummy_cycles=None, clk_freq=None, module=None, phy=None, rate="1:1", **kwargs):
+        if module is None:
+            # Use previous LiteX SPI Flash core with compat, will be deprecated at some point.
+            from litex.compat.soc_add_spi_flash import add_spi_flash
+            add_spi_flash(self, name, mode, dummy_cycles)
+        # LiteSPI.
+        else:
+            # Imports.
+            from litespi import LiteSPI
+            from litespi.phy.generic import LiteSPIPHY
+            from litespi.opcodes import SpiNorFlashOpCodes
 
-        # Checks.
-        assert dummy_cycles is not None # FIXME: Get dummy_cycles from SPI Flash
-        assert mode in ["1x", "4x"]
-        if clk_freq is None: clk_freq = self.clk_freq/2 # FIXME: Get max clk_freq from SPI Flash
+            # Checks/Parameters.
+            assert mode in ["1x", "4x"]
+            if clk_freq is None: clk_freq = self.sys_clk_freq
 
-        # Core.
-        self.check_if_exists(name)
-        spiflash = SpiFlash(
-            pads  = self.platform.request(name if mode == "1x" else name + mode),
-            dummy = dummy_cycles,
-            div   = ceil(self.clk_freq/clk_freq),
-            with_bitbang = True,
-            endianness   = self.cpu.endianness)
-        spiflash.add_clk_primitive(self.platform.device)
-        setattr(self.submodules, name, spiflash)
-        spiflash_region = SoCRegion(origin=self.mem_map.get(name, None), size=0x1000000) # FIXME: Get size from SPI Flash
-        self.bus.add_slave(name=name, slave=spiflash.bus, region=spiflash_region)
+            # PHY.
+            spiflash_phy = phy
+            if spiflash_phy is None:
+                self.check_if_exists(name + "_phy")
+                spiflash_pads = self.platform.request(name if mode == "1x" else name + mode)
+                spiflash_phy = LiteSPIPHY(spiflash_pads, module, device=self.platform.device, default_divisor=int(self.sys_clk_freq/clk_freq), rate=rate)
+                setattr(self.submodules, name + "_phy",  spiflash_phy)
+
+            # Core.
+            self.check_if_exists(name + "_mmap")
+            spiflash_core = LiteSPI(spiflash_phy, mmap_endianness=self.cpu.endianness, **kwargs)
+            setattr(self.submodules, name + "_core", spiflash_core)
+            spiflash_region = SoCRegion(origin=self.mem_map.get(name, None), size=module.total_size)
+            self.bus.add_slave(name=name, slave=spiflash_core.bus, region=spiflash_region)
+
+            # Constants.
+            self.add_constant("SPIFLASH_PHY_FREQUENCY", clk_freq)
+            self.add_constant("SPIFLASH_MODULE_NAME", module.name.upper())
+            self.add_constant("SPIFLASH_MODULE_TOTAL_SIZE", module.total_size)
+            self.add_constant("SPIFLASH_MODULE_PAGE_SIZE", module.page_size)
+            if SpiNorFlashOpCodes.READ_1_1_4 in module.supported_opcodes:
+                self.add_constant("SPIFLASH_MODULE_QUAD_CAPABLE")
+            if SpiNorFlashOpCodes.READ_4_4_4 in module.supported_opcodes:
+                self.add_constant("SPIFLASH_MODULE_QPI_CAPABLE")
 
     # Add SPI SDCard -------------------------------------------------------------------------------
     def add_spi_sdcard(self, name="spisdcard", spi_clk_freq=400e3, software_debug=False):
