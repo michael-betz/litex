@@ -114,7 +114,7 @@ class SRAM(Module):
 
         # # #
 
-        port = mem.get_port(write_capable=not read_only)
+        port = mem.get_port(write_capable=not read_only, mode=READ_FIRST)
         self.specials += mem, port
 
         sel = Signal()
