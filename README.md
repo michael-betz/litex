@@ -21,7 +21,7 @@ LiteX provides all the common components required to easily create an FPGA Core/
  - :heavy_check_mark: Complex cores through the ecosystem of cores: [LiteDRAM](https://github.com/enjoy-digital/litedram), [LitePCIe](https://github.com/enjoy-digital/litepcie), [LiteEth](https://github.com/enjoy-digital/liteeth), [LiteSATA](https://github.com/enjoy-digital/litesata), etc...
  - :heavy_check_mark: Various CPUs & ISAs: RISC-V, OpenRISC, LM32, Zynq, X86 (through a PCIe), etc...
  - :heavy_check_mark: Mixed languages support with VHDL/Verilog/(n)Migen/Spinal-HDL/etc... integration capabilities.
- - :heavy_check_mark: Powerful debug infractrusture through the various [bridges](https://github.com/enjoy-digital/litex/wiki/Use-Host-Bridge-to-control-debug-a-SoC) and [Litescope](https://github.com/enjoy-digital/litescope).
+ - :heavy_check_mark: Powerful debug infrastructure through the various [bridges](https://github.com/enjoy-digital/litex/wiki/Use-Host-Bridge-to-control-debug-a-SoC) and [Litescope](https://github.com/enjoy-digital/litescope).
  - :heavy_check_mark: Direct/Fast simulation through [Verilator](https://www.veripool.org/verilator/).
  - :heavy_check_mark: Build backends for open-source and vendors toolchains.
  - :heavy_check_mark: And a lot more... :)
@@ -84,7 +84,8 @@ LiteX already supports various softcores CPUs: VexRiscv, Rocket, LM32, Mor1kx, P
 | [LiteSDCard](http://github.com/enjoy-digital/litesdcard)     | [![](https://github.com/enjoy-digital/litesdcard/workflows/ci/badge.svg)](https://github.com/enjoy-digital/litesdcard/actions)     | SD card                   |
 | [LiteICLink](http://github.com/enjoy-digital/liteiclink)     | [![](https://github.com/enjoy-digital/liteiclink/workflows/ci/badge.svg)](https://github.com/enjoy-digital/liteiclink/actions)     | Inter-Chip communication  |
 | [LiteJESD204B](http://github.com/enjoy-digital/litejesd204b) | [![](https://github.com/enjoy-digital/litejesd204b/workflows/ci/badge.svg)](https://github.com/enjoy-digital/litejesd204b/actions) | JESD204B                  |
-| [LiteVideo](http://github.com/enjoy-digital/litevideo)       | [![](https://github.com/enjoy-digital/litevideo/workflows/ci/badge.svg)](https://github.com/enjoy-digital/litevideo/actions)       | VGA, DVI, HDMI            |
+| [LiteSPI](http://github.com/litex-hub/litespi)               | [![](https://github.com/litex-hub/litespi/workflows/ci/badge.svg)](https://github.com/litex-hub/litespi/actions)                   | SPI/SPIFlah               |
+| [LiteHyperBus](http://github.com/litex-hub/litehyperbus)     | [![](https://github.com/litex-hub/litehyperbus/workflows/ci/badge.svg)](https://github.com/litex-hub/litehyperbus/actions)         | HyperBus/HyperRam         |
 | [LiteScope](http://github.com/enjoy-digital/litescope)       | [![](https://github.com/enjoy-digital/litescope/workflows/ci/badge.svg)](https://github.com/enjoy-digital/litescope/actions)       | Logic analyzer            |
 
 # Examples of designs built with LiteX:
@@ -141,11 +142,11 @@ Provides definitions/modules to build cores (bus, bank, flow), cores and tools t
 ```sh
 $ wget https://raw.githubusercontent.com/enjoy-digital/litex/master/litex_setup.py
 $ chmod +x litex_setup.py
-$ ./litex_setup.py init install --user (--user to install to user directory)
+$ ./litex_setup.py --init --install --user (--user to install to user directory)
 ```
   Later, if you need to update all repositories:
 ```sh
-$ ./litex_setup.py update
+$ ./litex_setup.py --update
 ```
 
 > **Note:** On MacOS, make sure you have [HomeBrew](https://brew.sh) installed. Then do, ``brew install wget``.
@@ -155,7 +156,7 @@ $ ./litex_setup.py update
 3. Install a RISC-V toolchain (Only if you want to test/create a SoC with a CPU):
 ```sh
 $ pip3 install meson ninja
-$ ./litex_setup.py gcc
+$ ./litex_setup.py --gcc=riscv
 ```
 
 4. Build the target of your board...:

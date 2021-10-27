@@ -4,10 +4,12 @@
 # Copyright (c) 2019 Florent Kermarrec <florent@enjoy-digital.fr>
 # Copyright (c) 2019 Antti Lukats <antti.lukats@gmail.com>
 # Copyright (c) 2017 Robert Jordens <jordens@gmail.com>
+# Copyright (c) 2021 Gregory Davill <greg.davill@gmail.com>
+# Copyright (c) 2021 Gabriel L. Somlo <somlo@cmu.edu>
 # SPDX-License-Identifier: BSD-2-Clause
 
 from migen import *
-from migen.genlib.cdc import AsyncResetSynchronizer
+from migen.genlib.cdc import AsyncResetSynchronizer, MultiReg
 
 from litex.soc.interconnect import stream
 
@@ -85,6 +87,57 @@ class USJTAG(XilinxJTAG):
     def __init__(self, *args, **kwargs):
         XilinxJTAG.__init__(self, primitive="BSCANE2", *args, **kwargs)
 
+# ECP5 JTAG ----------------------------------------------------------------------------------------
+
+class ECP5JTAG(Module):
+    def __init__(self, tck_delay_luts=8):
+        self.reset   = Signal()
+        self.capture = Signal()
+        self.shift   = Signal()
+        self.update  = Signal()
+
+        self.tck = Signal()
+        self.tdi = Signal()
+        self.tdo = Signal()
+
+        # # #
+
+        rst_n  = Signal()
+        tck    = Signal()
+        jce1   = Signal()
+        jce1_d = Signal()
+
+        self.sync.jtag += jce1_d.eq(jce1)
+        self.comb += self.capture.eq(jce1 & ~jce1_d) # First cycle jce1 is high we're in Capture-DR.
+        self.comb += self.reset.eq(~rst_n)
+
+        self.specials += Instance("JTAGG",
+            o_JRSTN   = rst_n,
+            o_JSHIFT  = self.shift,
+            o_JUPDATE = self.update,
+
+            o_JTCK  = tck,
+            o_JTDI  = self.tdi, # JTDI = FF(posedge TCK, TDI)
+            o_JCE1  = jce1,     # (FSM==Capture-DR || Shift-DR) & (IR==0x32)
+            i_JTDO1 = self.tdo, # FF(negedge TCK, JTDO1) if (IR==0x32 && FSM==Shift-DR)
+        )
+
+        # TDI/TCK are synchronous on JTAGG output (TDI being registered with TCK). Introduce a delay
+        # on TCK with multiple LUT4s to allow its use as the JTAG Clk.
+        for i in range(tck_delay_luts):
+            new_tck = Signal()
+            self.specials += Instance("LUT4",
+                attr   = {"keep"},
+                p_INIT = 2,
+                i_A = tck,
+                i_B = 0,
+                i_C = 0,
+                i_D = 0,
+                o_Z = new_tck
+            )
+            tck = new_tck
+        self.comb += self.tck.eq(tck)
+
 # JTAG PHY -----------------------------------------------------------------------------------------
 
 class JTAGPHY(Module):
@@ -123,7 +176,10 @@ class JTAGPHY(Module):
                 jtag = S7JTAG(chain=chain)
             elif device[:4] in ["xcku", "xcvu"]:
                 jtag = USJTAG(chain=chain)
+            elif device[:5] == "LFE5U":
+                jtag = ECP5JTAG()
             else:
+                print(device)
                 raise NotImplementedError
             self.submodules.jtag = jtag
 

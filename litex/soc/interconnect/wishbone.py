@@ -339,6 +339,7 @@ class SRAM(Module):
             self.mem = mem_or_size
         else:
             self.mem = Memory(bus_data_width, mem_or_size//(bus_data_width//8), init=init)
+
         if read_only is None:
             if hasattr(self.mem, "bus_read_only"):
                 read_only = self.mem.bus_read_only
