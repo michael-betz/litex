@@ -62,7 +62,7 @@ git_repos = {
     "pythondata-cpu-microwatt":    GitRepo(url="https://github.com/litex-hub/", sha1=0xdad611c),
     "pythondata-cpu-blackparrot":  GitRepo(url="https://github.com/litex-hub/"),
     "pythondata-cpu-cv32e40p":     GitRepo(url="https://github.com/litex-hub/", clone="recursive"),
-    "pythondata-cpu-ibex":         GitRepo(url="https://github.com/litex-hub/", clone="recursive"),
+    "pythondata-cpu-ibex":         GitRepo(url="https://github.com/litex-hub/", clone="recursive", sha1=0xd3d53df),
 }
 
 # Script Location / Auto-Update --------------------------------------------------------------------
@@ -171,7 +171,12 @@ def riscv_gcc_toolchain_download():
         end_file = "w64-mingw32.zip"
     # Linux
     elif sys.platform.startswith("linux"):
-        end_file = "linux-ubuntu14.tar.gz"
+        os_release = (open("/etc/os-release").read()).lower()
+        if "fedora" in os_release:
+            end_file = "linux-centos6.tar.gz"
+        else:
+            end_file = "linux-ubuntu14.tar.gz"
+
     # Mac OS
     elif sys.platform.startswith("darwin"):
         end_file = "apple-darwin.tar.gz"

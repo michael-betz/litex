@@ -13,7 +13,34 @@ from litex.soc.cores.cpu import CPU, CPU_GCC_TRIPLE_RISCV32
 
 # Variants -----------------------------------------------------------------------------------------
 
-CPU_VARIANTS = ["standard"]
+CPU_VARIANTS = {
+    "standard":    "femtorv32_quark",
+    "quark":       "femtorv32_quark",       # Quark:       Most elementary version of FemtoRV32.
+    "tachyon":     "femtorv32_tachyon",     # Tachyon:     Like Quark but supporting higher freq.
+    "electron":    "femtorv32_electron",    # Electron:    Adds M support.
+    "intermissum": "femtorv32_intermissum", # Intermissum: Adds Interrupt + CSR.
+    "gracilis":    "femtorv32_gracilis",    # Gracilis:    Adds C support.
+    "petitbateau": "femtorv32_petitbateau", # PetitBateau: Adds F support.
+}
+
+# GCC Flags ----------------------------------------------------------------------------------------
+
+GCC_FLAGS = {
+    #                               /-------- Base ISA
+    #                               |/------- Hardware Multiply + Divide
+    #                               ||/----- Atomics
+    #                               |||/---- Compressed ISA
+    #                               ||||/--- Single-Precision Floating-Point
+    #                               |||||/-- Double-Precision Floating-Point
+    #                               imacfd
+    "standard":         "-march=rv32i     -mabi=ilp32",
+    "quark":            "-march=rv32i     -mabi=ilp32",
+    "tachyon":          "-march=rv32i     -mabi=ilp32",
+    "electron":         "-march=rv32im    -mabi=ilp32",
+    "intermissum":      "-march=rv32im    -mabi=ilp32",
+    "gracilis":         "-march=rv32imc   -mabi=ilp32",
+    "petitbateau":      "-march=rv32imfc  -mabi=ilp32f",
+}
 
 # FemtoRV ------------------------------------------------------------------------------------------
 
@@ -32,14 +59,14 @@ class FemtoRV(CPU):
     # GCC Flags.
     @property
     def gcc_flags(self):
-        flags =  "-march=rv32i "
-        flags += "-mabi=ilp32 "
-        flags += "-D__femtorv__ "
+        flags =  GCC_FLAGS[self.variant]
+        flags += " -D__femtorv__ "
         return flags
 
     def __init__(self, platform, variant="standard"):
         self.platform     = platform
         self.variant      = variant
+        self.human_name   = f"FemtoRV-{variant.upper()}"
         self.reset        = Signal()
         self.idbus        = idbus = wishbone.Interface()
         self.periph_buses = [idbus] # Peripheral buses (Connected to main SoC's bus).
@@ -82,57 +109,59 @@ class FemtoRV(CPU):
 
         # Adapt FemtoRV Mem Bus to Wishbone.
         # ----------------------------------
-
-        # Bytes to Words addressing conversion.
-        self.comb += idbus.adr.eq(mbus.addr[2:])
-
-        # Wdata/WMask direct connection.
-        self.comb += idbus.dat_w.eq(mbus.wdata)
-        self.comb += idbus.sel.eq(mbus.wmask)
-
-        # Control adaptation.
         latch = Signal()
         write = mbus.wmask != 0
         read  = mbus.rstrb
 
-        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
-        fsm.act("IDLE",
-            idbus.stb.eq(read | write),
-            idbus.cyc.eq(read | write),
-            idbus.we.eq(write),
-            If(read,
-                mbus.rbusy.eq(1),
-                NextState("READ")
-            ).Elif(write,
-                mbus.wbusy.eq(1),
-                NextState("WRITE")
+        self.submodules.fsm = fsm = FSM(reset_state="WAIT")
+        fsm.act("WAIT",
+            # Latch Address + Bytes to Words conversion.
+            NextValue(idbus.adr, mbus.addr[2:]),
+
+            # Latch Wdata/WMask.
+            NextValue(idbus.dat_w, mbus.wdata),
+            NextValue(idbus.sel,   mbus.wmask),
+
+            # If Read or Write, jump to access.
+            If(read | write,
+                NextValue(idbus.we, write),
+                NextState("WB-ACCESS")
             )
         )
-        fsm.act("READ",
+        fsm.act("WB-ACCESS",
             idbus.stb.eq(1),
             idbus.cyc.eq(1),
+            mbus.wbusy.eq(1),
             mbus.rbusy.eq(1),
             If(idbus.ack,
+                mbus.wbusy.eq(0),
+                mbus.rbusy.eq(0),
                 latch.eq(1),
-                NextState("IDLE")
-            )
-        )
-        fsm.act("WRITE",
-            idbus.stb.eq(1),
-            idbus.cyc.eq(1),
-            idbus.we.eq(1),
-            mbus.wbusy.eq(1),
-            If(idbus.ack,
-                NextState("IDLE")
+                NextState("WAIT")
             )
         )
 
         # Latch RData on Wishbone ack.
-        self.sync += If(latch, mbus.rdata.eq(idbus.dat_r))
+        mbus_rdata = Signal(32)
+        self.sync += If(latch, mbus_rdata.eq(idbus.dat_r))
+        self.comb += mbus.rdata.eq(mbus_rdata)             # Latched value.
+        self.comb += If(latch, mbus.rdata.eq(idbus.dat_r)) # Immediate value.
+
+        # Main Ram accesses debug.
+        if False:
+            self.sync += If(mbus.addr[28:32] == 0x4, # Only Display Main Ram accesses.
+                If(idbus.stb & idbus.ack,
+                    If(idbus.we,
+                        Display("Write: Addr 0x%08x : Data 0x%08x, Sel: 0x%x", idbus.adr, idbus.dat_w, idbus.sel)
+                    ).Else(
+                        Display("Read:  Addr 0x%08x : Data 0x%08x", idbus.adr, idbus.dat_r)
+                    )
+                )
+            )
 
         # Add Verilog sources.
         # --------------------
-        self.add_sources(platform)
+        self.add_sources(platform, variant)
 
     def set_reset_address(self, reset_address):
         assert not hasattr(self, "reset_address")
@@ -140,12 +169,15 @@ class FemtoRV(CPU):
         self.cpu_params.update(p_RESET_ADDR=Constant(reset_address, 32))
 
     @staticmethod
-    def add_sources(platform):
-        if not os.path.exists("femtorv32_quark.v"):
-            # Get FemtoRV32 source.
-            os.system("wget https://github.com/enjoy-digital/litex/files/7487578/femtorv32_quark.v.txt")
-            os.system("mv femtorv32_quark.v.txt femtorv32_quark.v")
-        platform.add_source("femtorv32_quark.v")
+    def add_sources(platform, variant):
+        platform.add_verilog_include_path(os.getcwd())
+        cpu_files = [f"{CPU_VARIANTS[variant]}.v"]
+        if variant == "petitbateau":
+            cpu_files.append("petitbateau.v")
+        for cpu_file in cpu_files:
+            if not os.path.exists(cpu_file):
+                os.system(f"wget https://raw.githubusercontent.com/BrunoLevy/learn-fpga/master/FemtoRV/RTL/PROCESSOR/{cpu_file}")
+            platform.add_source(cpu_file)
 
     def do_finalize(self):
         assert hasattr(self, "reset_address")

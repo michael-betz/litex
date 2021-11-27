@@ -925,9 +925,10 @@ class SoC(Module):
 
         # Add Bus Masters/CSR/IRQs.
         if not isinstance(self.cpu, (cpu.CPUNone, cpu.Zynq7000)):
-            if reset_address is None:
-                reset_address = self.mem_map["rom"]
-            self.cpu.set_reset_address(reset_address)
+            if hasattr(self.cpu, "set_reset_address"):
+                if reset_address is None:
+                    reset_address = self.mem_map["rom"]
+                self.cpu.set_reset_address(reset_address)
             for n, cpu_bus in enumerate(self.cpu.periph_buses):
                 self.bus.add_master(name="cpu_bus{}".format(n), master=cpu_bus)
             if hasattr(self.cpu, "interrupt"):
@@ -1082,7 +1083,7 @@ class SoC(Module):
             self.add_constant(name + "_" + constant.name, constant.value.value)
 
         # SoC CPU Check ----------------------------------------------------------------------------
-        if not isinstance(self.cpu, (cpu.CPUNone, cpu.Zynq7000)):
+        if not isinstance(self.cpu, (cpu.CPUNone, cpu.Zynq7000, cpu.EOS_S3)):
             cpu_reset_address_valid = False
             for name, container in self.bus.regions.items():
                 if self.bus.check_region_is_in(
