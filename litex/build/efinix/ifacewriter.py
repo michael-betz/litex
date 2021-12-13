@@ -57,6 +57,9 @@ class InterfaceWriter:
                 if block["type"] == "DRAM":
                     self.add_dram_xml(root, block)
 
+        if self.platform.iobank_info:
+            self.add_iobank_info_xml(root, self.platform.iobank_info)
+
         xml_string = et.tostring(root, "utf-8")
         reparsed = expatbuilder.parseString(xml_string, False)
         print_string = reparsed.toprettyxml(indent="    ")
@@ -198,7 +201,10 @@ design.create("{2}", "{3}", "./../gateware", overwrite=True)
             cmd += 'design.set_property("{}", pll_config, block_type="PLL")\n\n'.format(name)
 
         for i, clock in enumerate(block["clk_out"]):
-            cmd += 'design.set_property("{}","CLKOUT{}_PHASE","{}","PLL")\n'.format(name, i, clock[2])
+            if block["version"] == "V1_V2":
+                cmd += 'design.set_property("{}","CLKOUT{}_PHASE","{}","PLL")\n'.format(name, i, clock[2])
+            else:
+                cmd += '# Phase shift needs to be implemented for PLL V3\n'
 
         cmd += "target_freq = {\n"
         for i, clock in enumerate(block["clk_out"]):
@@ -214,13 +220,19 @@ design.create("{2}", "{3}", "./../gateware", overwrite=True)
             cmd += 'print("#### {} ####")\n'.format(name)
             cmd += 'clksrc_info = design.trace_ref_clock("{}", block_type="PLL")\n'.format(name)
             cmd += 'pprint.pprint(clksrc_info)\n'
-            cmd += 'clock_source_prop = ["REFCLK_SOURCE", "CORE_CLK_PIN", "EXT_CLK", "CLKOUT1_EN", "CLKOUT2_EN","REFCLK_FREQ", "RESOURCE"]\n'
-            cmd += 'clock_source_prop += ["CLKOUT0_FREQ", "CLKOUT1_FREQ", "CLKOUT2_FREQ"]\n'
-            cmd += 'clock_source_prop += ["CLKOUT0_PHASE", "CLKOUT1_PHASE", "CLKOUT2_PHASE"]\n'
+            cmd += 'clock_source_prop = ["REFCLK_SOURCE", "CORE_CLK_PIN", "EXT_CLK", "REFCLK_FREQ", "RESOURCE"]\n'
+            for i, clock in enumerate(block["clk_out"]):
+                cmd += 'clock_source_prop += ["CLKOUT{}_FREQ", "CLKOUT{}_PHASE", "CLKOUT{}_EN"]\n'.format(i, i, i)
             cmd += 'prop_map = design.get_property("{}", clock_source_prop, block_type="PLL")\n'.format(name)
             cmd += 'pprint.pprint(prop_map)\n'
 
-        cmd += "# ---------- END PLL {} ---------\n\n".format(name)
+            for i, clock in enumerate(block["clk_out"]):
+                cmd += '\nfreq = float(prop_map["CLKOUT{}_FREQ"])\n'.format(i)
+                cmd += 'if freq != {}:\n'.format(clock[1]/1e6)
+                cmd += '    print("ERROR: CLKOUT{} configured for {}MHz is {{}}MHz".format(freq))\n'.format(i, clock[1]/1e6)
+                cmd += '    exit("PLL ERROR")\n'
+
+        cmd += "\n#---------- END PLL {} ---------\n\n".format(name)
         return cmd
 
     def generate(self, partnumber):
@@ -282,3 +294,10 @@ design.save()"""
             load            = "3"
         )
 
+    def add_iobank_info_xml(self, root, iobank_info):
+        dev = root.find("efxpt:device_info", namespaces)
+        bank_info = dev.find("efxpt:iobank_info", namespaces)
+        for name, iostd in iobank_info:
+            for child in bank_info:
+                    if name == child.get("name"):
+                        child.set("iostd", iostd)

@@ -83,7 +83,15 @@ def _format_constraint(c, signame, fmt_r, fragment, platform):
     # IO standard property
     elif isinstance(c, IOStandard):
         prop = ""
-        valid = ["3.3_V_LVTTL_/_LVCMOS", "2.5_V_LVCMOS", "1.8_V_LVCMOS"]
+        valid = [ "3.3_V_LVTTL_/_LVCMOS", "2.5_V_LVCMOS", "1.8_V_LVCMOS",
+                  "1.2_V_Differential_HSTL", "1.2_V_Differential_SSTL",
+                  "1.2_V_HSTL", "1.2_V_LVCMOS", "1.2_V_SSTL", "1.5_V_Differential_HSTL",
+                  "1.5_V_Differential_SSTL", "1.5_V_HSTL", "1.5_V_LVCMOS", "1.5_V_SSTL",
+                  "1.8_V_Differential_HSTL", "1.8_V_Differential_SSTL", "1.8_V_HSTL",
+                  "1.8_V_LVCMOS", "1.8_V_SSTL", "2.5_V_LVCMOS", "3.0_V_LVCMOS",
+                  "3.0_V_LVTTL", "3.3_V_LVCMOS", "3.3_V_LVTTL"
+        ]
+
         if c.name in valid:
             prop = "IO_STANDARD"
 
@@ -191,12 +199,11 @@ def _build_xml(family, device, timing_model, build_name, sources):
 
     # Add Design Sources.
     for filename, language, library in sources:
-        if ".vh" not in filename:
-            et.SubElement(design_info, "efx:design_file", {
-                "name"    : filename,
-                "version" : "default",
-                "library" : "default",
-            })
+        et.SubElement(design_info, "efx:design_file", {
+            "name"    : filename,
+            "version" : "default",
+            "library" : "default" if ".vh" not in filename else library,
+        })
 
     # Add Timing Constraints.
     constraint_info  = et.SubElement(root, "efx:constraint_info")
@@ -234,8 +241,6 @@ class EfinityToolchain:
         build_name = "top",
         run        = True,
         **kwargs):
-
-        family = "Trion" # FIXME: Add Titanium support.
 
         self.ifacewriter.set_build_params(platform, build_name)
 
@@ -276,7 +281,7 @@ class EfinityToolchain:
 
         # Generate project file (.xml)
         _build_xml(
-            family       = family,
+            family       = platform.family,
             device       = platform.device,
             timing_model = platform.timing_model,
             build_name   = build_name,
@@ -296,9 +301,10 @@ class EfinityToolchain:
             excluded_ios              = self.excluded_ios
         )
 
-        # DDR doesn't have Python API so we need to configure it
+        # Some IO blocks don't have Python API so we need to configure them
         # directly in the peri.xml file
-        if self.ifacewriter.xml_blocks:
+        # We also need to configure the bank voltage here
+        if self.ifacewriter.xml_blocks or platform.iobank_info:
             self.ifacewriter.generate_xml_blocks()
 
         # Run
@@ -310,7 +316,7 @@ class EfinityToolchain:
                 "--write-efx-verilog",          f"outflow/{build_name}.map.v",
                 "--write-premap-module",        f"outflow/{build_name}.elab.vdb",
                 "--binary-db",                  f"{build_name}.vdb",
-                "--family",                     family,
+                "--family",                     platform.family,
                 "--device",                     platform.device,
                 "--mode",                       "speed",
                 "--max_ram",                    "-1",
@@ -337,7 +343,7 @@ class EfinityToolchain:
             r = tools.subprocess_call_filtered([self.efinity_path + "/bin/python3",
                 self.efinity_path + "/scripts/efx_run_pt.py",
                 f"{build_name}",
-                family,
+                platform.family,
                 platform.device
             ], common.colors)
             if r != 0:
@@ -345,7 +351,7 @@ class EfinityToolchain:
 
             r = tools.subprocess_call_filtered([self.efinity_path + "/bin/efx_pnr",
                 "--circuit",              f"{build_name}",
-                "--family",               family,
+                "--family",               platform.family,
                 "--device",               platform.device,
                 "--operating_conditions", platform.timing_model,
                 "--pack",
@@ -371,7 +377,7 @@ class EfinityToolchain:
                 "--source",                   f"work_pnr/{build_name}.lbf",
                 "--dest",                     f"{build_name}.hex",
                 "--device",                   platform.device,
-                "--family",                   family,
+                "--family",                   platform.family,
                 "--periph",                   f"outflow/{build_name}.lpf",
                 "--oscillator_clock_divider", "DIV8",
                 "--spi_low_power_mode",       "off",
