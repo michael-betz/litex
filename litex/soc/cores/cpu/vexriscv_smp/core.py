@@ -63,23 +63,24 @@ class VexRiscvSMP(CPU):
     # Command line configuration arguments.
     @staticmethod
     def args_fill(parser):
-        parser.add_argument("--cpu-count",                    default=1,           help="Number of CPU(s) in the cluster.", type=int)
-        parser.add_argument("--with-coherent-dma",            action="store_true", help="Enable Coherent DMA Slave interface.")
-        parser.add_argument("--without-coherent-dma",         action="store_true", help="Disable Coherent DMA Slave interface.")
-        parser.add_argument("--dcache-width",                 default=None,        help="L1 data cache bus width.")
-        parser.add_argument("--icache-width",                 default=None,        help="L1 instruction cache bus width.")
-        parser.add_argument("--dcache-size",                  default=None,        help="L1 data cache size in byte per CPU.")
-        parser.add_argument("--dcache-ways",                  default=None,        help="L1 data cache ways per CPU.")
-        parser.add_argument("--icache-size",                  default=None,        help="L1 instruction cache size in byte per CPU.")
-        parser.add_argument("--icache-ways",                  default=None,        help="L1 instruction cache ways per CPU")
-        parser.add_argument("--aes-instruction",              default=None,        help="Enable AES instruction acceleration.")
-        parser.add_argument("--without-out-of-order-decoder", action="store_true", help="Reduce area at cost of peripheral access speed")
-        parser.add_argument("--with-wishbone-memory"        , action="store_true", help="Disable native LiteDRAM interface")
-        parser.add_argument("--with-fpu"                    , action="store_true", help="Enable the F32/F64 FPU")
-        parser.add_argument("--cpu-per-fpu"                 , default="4",         help="Maximal ratio between CPU count and FPU count. Will instanciate as many FPU as necessary.")
-        parser.add_argument("--with-rvc"                    , action="store_true", help="Enable RISC-V compressed instruction support")
-        parser.add_argument("--dtlb-size",                    default=4,           help="Data TLB size.")
-        parser.add_argument("--itlb-size",                    default=4,           help="Instruction TLB size.")
+        cpu_group = parser.add_argument_group("cpu")
+        cpu_group.add_argument("--cpu-count",                    default=1,           help="Number of CPU(s) in the cluster.", type=int)
+        cpu_group.add_argument("--with-coherent-dma",            action="store_true", help="Enable Coherent DMA Slave interface.")
+        cpu_group.add_argument("--without-coherent-dma",         action="store_true", help="Disable Coherent DMA Slave interface.")
+        cpu_group.add_argument("--dcache-width",                 default=None,        help="L1 data cache bus width.")
+        cpu_group.add_argument("--icache-width",                 default=None,        help="L1 instruction cache bus width.")
+        cpu_group.add_argument("--dcache-size",                  default=None,        help="L1 data cache size in byte per CPU.")
+        cpu_group.add_argument("--dcache-ways",                  default=None,        help="L1 data cache ways per CPU.")
+        cpu_group.add_argument("--icache-size",                  default=None,        help="L1 instruction cache size in byte per CPU.")
+        cpu_group.add_argument("--icache-ways",                  default=None,        help="L1 instruction cache ways per CPU")
+        cpu_group.add_argument("--aes-instruction",              default=None,        help="Enable AES instruction acceleration.")
+        cpu_group.add_argument("--without-out-of-order-decoder", action="store_true", help="Reduce area at cost of peripheral access speed")
+        cpu_group.add_argument("--with-wishbone-memory",         action="store_true", help="Disable native LiteDRAM interface")
+        cpu_group.add_argument("--with-fpu",                     action="store_true", help="Enable the F32/F64 FPU")
+        cpu_group.add_argument("--cpu-per-fpu",                  default="4",         help="Maximal ratio between CPU count and FPU count. Will instanciate as many FPU as necessary.")
+        cpu_group.add_argument("--with-rvc",                     action="store_true", help="Enable RISC-V compressed instruction support")
+        cpu_group.add_argument("--dtlb-size",                    default=4,           help="Data TLB size.")
+        cpu_group.add_argument("--itlb-size",                    default=4,           help="Instruction TLB size.")
 
     @staticmethod
     def args_read(args):
@@ -287,6 +288,7 @@ class VexRiscvSMP(CPU):
         self.memory_buses     = []     # Memory buses (Connected directly to LiteDRAM).
 
         # # #
+
         self.cpu_params = dict(
             # Clk / Rst.
             i_debugCd_external_clk   = ClockSignal(),
@@ -345,7 +347,6 @@ class VexRiscvSMP(CPU):
             ]
 
     def set_reset_address(self, reset_address):
-        assert not hasattr(self, "reset_address")
         self.reset_address = reset_address
         assert reset_address == 0x00000000
 
@@ -460,9 +461,17 @@ class VexRiscvSMP(CPU):
 
     def do_finalize(self):
         assert hasattr(self, "reset_address")
+
+        # When no Direct Memory Bus, do memory accesses through Wishbone Peripheral Bus.
+        if len(self.memory_buses) == 0:
+            VexRiscvSMP.wishbone_memory = True
+
+        # Generate cluster name.
         VexRiscvSMP.generate_cluster_name()
+
+        # Do verilog instance.
         self.specials += Instance(self.cluster_name, **self.cpu_params)
 
-        # Add Verilog sources
+        # Add verilog sources
         self.add_sources(self.platform)
 

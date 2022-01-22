@@ -16,6 +16,7 @@ from migen import *
 from litex.build.generic_platform import *
 from litex.build.sim import SimPlatform
 from litex.build.sim.config import SimConfig
+from litex.build.sim.verilator import verilator_build_args, verilator_build_argdict
 
 from litex.soc.integration.common import *
 from litex.soc.integration.soc_core import *
@@ -24,7 +25,6 @@ from litex.soc.integration.soc import *
 from litex.soc.cores.bitbang import *
 from litex.soc.cores.gpio import GPIOTristate
 from litex.soc.cores.cpu import CPUS
-
 
 from litedram import modules as litedram_modules
 from litedram.modules import parse_spd_hexdump
@@ -48,8 +48,11 @@ from litescope import LiteScopeAnalyzer
 # IOs ----------------------------------------------------------------------------------------------
 
 _io = [
+    # Clk / Rst.
     ("sys_clk", 0, Pins(1)),
     ("sys_rst", 0, Pins(1)),
+
+    # Serial.
     ("serial", 0,
         Subsignal("source_valid", Pins(1)),
         Subsignal("source_ready", Pins(1)),
@@ -59,6 +62,8 @@ _io = [
         Subsignal("sink_ready",   Pins(1)),
         Subsignal("sink_data",    Pins(8)),
     ),
+
+    # Ethernet (Stream Endpoint).
     ("eth_clocks", 0,
         Subsignal("tx", Pins(1)),
         Subsignal("rx", Pins(1)),
@@ -72,12 +77,16 @@ _io = [
         Subsignal("sink_ready",   Pins(1)),
         Subsignal("sink_data",    Pins(8)),
     ),
+
+    # Ethernet (XGMII).
     ("xgmii_eth", 0,
         Subsignal("rx_data",      Pins(64)),
         Subsignal("rx_ctl",       Pins(8)),
         Subsignal("tx_data",      Pins(64)),
         Subsignal("tx_ctl",       Pins(8)),
     ),
+
+    # Ethernet (GMII).
     ("gmii_eth", 0,
         Subsignal("rx_data",      Pins(8)),
         Subsignal("rx_dv",        Pins(1)),
@@ -86,11 +95,15 @@ _io = [
         Subsignal("tx_en",        Pins(1)),
         Subsignal("tx_er",        Pins(1)),
     ),
+
+    # I2C.
     ("i2c", 0,
         Subsignal("scl",     Pins(1)),
         Subsignal("sda_out", Pins(1)),
         Subsignal("sda_in",  Pins(1)),
     ),
+
+    # SPI-Flash (X1).
     ("spiflash", 0,
         Subsignal("cs_n", Pins(1)),
         Subsignal("clk",  Pins(1)),
@@ -99,17 +112,19 @@ _io = [
         Subsignal("wp",   Pins(1)),
         Subsignal("hold", Pins(1)),
     ),
+
+    # SPI-Flash (X4).
     ("spiflash4x", 0,
         Subsignal("cs_n", Pins(1)),
         Subsignal("clk",  Pins(1)),
         Subsignal("dq",   Pins(4)),
     ),
-    # Simulated tristate IO (Verilator does not support top-level
-    # tristate signals)
+
+    # Tristate GPIOs (for sim control/status).
     ("gpio", 0,
-        Subsignal("oe",   Pins(32)),
-        Subsignal("o",    Pins(32)),
-        Subsignal("i",    Pins(32)),
+        Subsignal("oe", Pins(32)),
+        Subsignal("o",  Pins(32)),
+        Subsignal("i",  Pins(32)),
     )
 ]
 
@@ -122,7 +137,6 @@ class Platform(SimPlatform):
 # Simulation SoC -----------------------------------------------------------------------------------
 
 class SimSoC(SoCCore):
-    mem_map = {**SoCCore.mem_map, **{"spiflash": 0x80000000}}
     def __init__(self,
         with_sdram            = False,
         with_ethernet         = False,
@@ -149,8 +163,7 @@ class SimSoC(SoCCore):
 
         # SoCCore ----------------------------------------------------------------------------------
         SoCCore.__init__(self, platform, clk_freq=sys_clk_freq,
-            ident         = "LiteX Simulation",
-            ident_version = True,
+            ident = "LiteX Simulation",
             **kwargs)
 
         # CRG --------------------------------------------------------------------------------------
@@ -244,33 +257,6 @@ class SimSoC(SoCCore):
                 mac_address = etherbone_mac_address
             )
 
-        # Analyzer ---------------------------------------------------------------------------------
-        if with_analyzer:
-            analyzer_signals = [
-                # IBus (could also just added as self.cpu.ibus)
-                self.cpu.ibus.stb,
-                self.cpu.ibus.cyc,
-                self.cpu.ibus.adr,
-                self.cpu.ibus.we,
-                self.cpu.ibus.ack,
-                self.cpu.ibus.sel,
-                self.cpu.ibus.dat_w,
-                self.cpu.ibus.dat_r,
-                # DBus (could also just added as self.cpu.dbus)
-                self.cpu.dbus.stb,
-                self.cpu.dbus.cyc,
-                self.cpu.dbus.adr,
-                self.cpu.dbus.we,
-                self.cpu.dbus.ack,
-                self.cpu.dbus.sel,
-                self.cpu.dbus.dat_w,
-                self.cpu.dbus.dat_r,
-            ]
-            self.submodules.analyzer = LiteScopeAnalyzer(analyzer_signals,
-                depth        = 512,
-                clock_domain = "sys",
-                csr_csv      = "analyzer.csv")
-
         # I2C --------------------------------------------------------------------------------------
         if with_i2c:
             pads = platform.request("i2c", 0)
@@ -302,6 +288,33 @@ class SimSoC(SoCCore):
             platform.add_debug(self, reset=1 if trace_reset_on else 0)
         else:
             self.comb += platform.trace.eq(1)
+
+        # Analyzer ---------------------------------------------------------------------------------
+        if with_analyzer:
+            analyzer_signals = [
+                # IBus (could also just added as self.cpu.ibus)
+                self.cpu.ibus.stb,
+                self.cpu.ibus.cyc,
+                self.cpu.ibus.adr,
+                self.cpu.ibus.we,
+                self.cpu.ibus.ack,
+                self.cpu.ibus.sel,
+                self.cpu.ibus.dat_w,
+                self.cpu.ibus.dat_r,
+                # DBus (could also just added as self.cpu.dbus)
+                self.cpu.dbus.stb,
+                self.cpu.dbus.cyc,
+                self.cpu.dbus.adr,
+                self.cpu.dbus.we,
+                self.cpu.dbus.ack,
+                self.cpu.dbus.sel,
+                self.cpu.dbus.dat_w,
+                self.cpu.dbus.dat_r,
+            ]
+            self.submodules.analyzer = LiteScopeAnalyzer(analyzer_signals,
+                depth        = 512,
+                clock_domain = "sys",
+                csr_csv      = "analyzer.csv")
 
 # Build --------------------------------------------------------------------------------------------
 
@@ -343,47 +356,44 @@ def generate_gtkw_savefile(builder, vns, trace_fst):
             dfi_group("dfi commands", ["rddata"])
 
 def sim_args(parser):
+
     builder_args(parser)
     soc_core_args(parser)
-    parser.add_argument("--threads",              default=1,               help="Set number of threads (default=1)")
-    parser.add_argument("--rom-init",             default=None,            help="rom_init file")
-    parser.add_argument("--ram-init",             default=None,            help="ram_init file")
-    parser.add_argument("--with-sdram",           action="store_true",     help="Enable SDRAM support")
-    parser.add_argument("--sdram-module",         default="MT48LC16M16",   help="Select SDRAM chip")
-    parser.add_argument("--sdram-data-width",     default=32,              help="Set SDRAM chip data width")
-    parser.add_argument("--sdram-init",           default=None,            help="SDRAM init file")
-    parser.add_argument("--sdram-from-spd-dump",  default=None,            help="Generate SDRAM module based on data from SPD EEPROM dump")
-    parser.add_argument("--sdram-verbosity",      default=0,               help="Set SDRAM checker verbosity")
-    parser.add_argument("--with-ethernet",        action="store_true",     help="Enable Ethernet support")
-    parser.add_argument("--ethernet-phy-model",   default="sim",           help="Ethernet PHY to simulate (sim, xgmii, gmii)")
-    parser.add_argument("--with-etherbone",       action="store_true",     help="Enable Etherbone support")
-    parser.add_argument("--local-ip",             default="192.168.1.50",  help="Local IP address of SoC (default=192.168.1.50)")
-    parser.add_argument("--remote-ip",            default="192.168.1.100", help="Remote IP address of TFTP server (default=192.168.1.100)")
-    parser.add_argument("--with-analyzer",        action="store_true",     help="Enable Analyzer support")
-    parser.add_argument("--with-i2c",             action="store_true",     help="Enable I2C support")
-    parser.add_argument("--with-sdcard",          action="store_true",     help="Enable SDCard support")
-    parser.add_argument("--with-spi-flash",       action="store_true",     help="Enable SPI Flash (MMAPed)")
-    parser.add_argument("--spi_flash-init",       default=None,            help="SPI Flash init file")
-    parser.add_argument("--with-gpio",            action="store_true",     help="Enable Tristate GPIO (32 pins)")
-    parser.add_argument("--trace",                action="store_true",     help="Enable Tracing")
-    parser.add_argument("--trace-fst",            action="store_true",     help="Enable FST tracing (default=VCD)")
-    parser.add_argument("--trace-start",          default="0",             help="Time to start tracing (ps)")
-    parser.add_argument("--trace-end",            default="-1",            help="Time to end tracing (ps)")
-    parser.add_argument("--opt-level",            default="O3",            help="Compilation optimization level")
-    parser.add_argument("--sim-debug",            action="store_true",     help="Add simulation debugging modules")
-    parser.add_argument("--gtkwave-savefile",     action="store_true",     help="Generate GTKWave savefile")
-    parser.add_argument("--non-interactive",      action="store_true",     help="Run simulation without user input")
+    verilator_build_args(parser)
+    parser.add_argument("--rom-init",             default=None,            help="ROM init file (.bin or .json).")
+    parser.add_argument("--ram-init",             default=None,            help="RAM init file (.bin or .json).")
+    parser.add_argument("--with-sdram",           action="store_true",     help="Enable SDRAM support.")
+    parser.add_argument("--sdram-module",         default="MT48LC16M16",   help="Select SDRAM chip.")
+    parser.add_argument("--sdram-data-width",     default=32,              help="Set SDRAM chip data width.")
+    parser.add_argument("--sdram-init",           default=None,            help="SDRAM init file (.bin or .json).")
+    parser.add_argument("--sdram-from-spd-dump",  default=None,            help="Generate SDRAM module based on data from SPD EEPROM dump.")
+    parser.add_argument("--sdram-verbosity",      default=0,               help="Set SDRAM checker verbosity.")
+    parser.add_argument("--with-ethernet",        action="store_true",     help="Enable Ethernet support.")
+    parser.add_argument("--ethernet-phy-model",   default="sim",           help="Ethernet PHY to simulate (sim, xgmii or gmii).")
+    parser.add_argument("--with-etherbone",       action="store_true",     help="Enable Etherbone support.")
+    parser.add_argument("--local-ip",             default="192.168.1.50",  help="Local IP address of SoC.")
+    parser.add_argument("--remote-ip",            default="192.168.1.100", help="Remote IP address of TFTP server.")
+    parser.add_argument("--with-analyzer",        action="store_true",     help="Enable Analyzer support.")
+    parser.add_argument("--with-i2c",             action="store_true",     help="Enable I2C support.")
+    parser.add_argument("--with-sdcard",          action="store_true",     help="Enable SDCard support.")
+    parser.add_argument("--with-spi-flash",       action="store_true",     help="Enable SPI Flash (MMAPed).")
+    parser.add_argument("--spi_flash-init",       default=None,            help="SPI Flash init file.")
+    parser.add_argument("--with-gpio",            action="store_true",     help="Enable Tristate GPIO (32 pins).")
+    parser.add_argument("--sim-debug",            action="store_true",     help="Add simulation debugging modules.")
+    parser.add_argument("--gtkwave-savefile",     action="store_true",     help="Generate GTKWave savefile.")
+    parser.add_argument("--non-interactive",      action="store_true",     help="Run simulation without user input.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Generic LiteX SoC Simulation")
+    parser = argparse.ArgumentParser(description="LiteX SoC Simulation utility")
     sim_args(parser)
     args = parser.parse_args()
 
-    soc_kwargs     = soc_core_argdict(args)
-    builder_kwargs = builder_argdict(args)
+    soc_kwargs             = soc_core_argdict(args)
+    builder_kwargs         = builder_argdict(args)
+    verilator_build_kwargs = verilator_build_argdict(args)
 
     sys_clk_freq = int(1e6)
-    sim_config = SimConfig()
+    sim_config   = SimConfig()
     sim_config.add_clocker("sys_clk", freq_hz=sys_clk_freq)
 
     # Configuration --------------------------------------------------------------------------------
@@ -397,13 +407,13 @@ def main():
 
     # ROM.
     if args.rom_init:
-        soc_kwargs["integrated_rom_init"] = get_mem_data(args.rom_init, cpu.endianness)
+        soc_kwargs["integrated_rom_init"] = get_mem_data(args.rom_init, endianness=cpu.endianness)
 
     # RAM / SDRAM.
     soc_kwargs["integrated_main_ram_size"] = args.integrated_main_ram_size
     if args.integrated_main_ram_size:
         if args.ram_init is not None:
-            soc_kwargs["integrated_main_ram_init"] = get_mem_data(args.ram_init, cpu.endianness)
+            soc_kwargs["integrated_main_ram_init"] = get_mem_data(args.ram_init, endianness=cpu.endianness)
     elif args.with_sdram:
         assert args.ram_init is None
         soc_kwargs["sdram_module"]     = args.sdram_module
@@ -427,9 +437,6 @@ def main():
     if args.with_i2c:
         sim_config.add_module("spdeeprom", "i2c")
 
-    trace_start = int(float(args.trace_start))
-    trace_end = int(float(args.trace_end))
-
     # SoC ------------------------------------------------------------------------------------------
     soc = SimSoC(
         with_sdram         = args.with_sdram,
@@ -442,9 +449,9 @@ def main():
         with_spi_flash     = args.with_spi_flash,
         with_gpio          = args.with_gpio,
         sim_debug          = args.sim_debug,
-        trace_reset_on     = trace_start > 0 or trace_end > 0,
-        sdram_init         = [] if args.sdram_init is None else get_mem_data(args.sdram_init, cpu.endianness),
-        spi_flash_init     = None if args.spi_flash_init is None else get_mem_data(args.spi_flash_init, "big"),
+        trace_reset_on     = int(float(args.trace_start)) > 0 or int(float(args.trace_end)) > 0,
+        sdram_init         = []   if args.sdram_init     is None else get_mem_data(args.sdram_init,     endianness=cpu.endianness),
+        spi_flash_init     = None if args.spi_flash_init is None else get_mem_data(args.spi_flash_init, endianness="big"),
         **soc_kwargs)
     if args.ram_init is not None or args.sdram_init is not None:
         soc.add_constant("ROM_BOOT_ADDRESS", soc.mem_map["main_ram"])
@@ -462,15 +469,10 @@ def main():
     builder_kwargs["csr_csv"] = "csr.csv"
     builder = Builder(soc, **builder_kwargs)
     builder.build(
-        threads          = args.threads,
         sim_config       = sim_config,
-        opt_level        = args.opt_level,
-        trace            = args.trace,
-        trace_fst        = args.trace_fst,
-        trace_start      = trace_start,
-        trace_end        = trace_end,
         interactive      = not args.non_interactive,
-        pre_run_callback = pre_run_callback
+        pre_run_callback = pre_run_callback,
+        **verilator_build_kwargs,
     )
 
 if __name__ == "__main__":

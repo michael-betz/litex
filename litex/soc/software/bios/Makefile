@@ -39,6 +39,12 @@ else
 OBJECTS += readline.o
 endif
 
+ifeq ($(CPU), zynq7000)
+LSCRIPT = linker-zynq.ld
+else
+LSCRIPT = linker.ld
+endif
+
 all: bios.bin
 	$(PYTHON) -m litex.soc.software.memusage bios.elf $(CURDIR)/../include/generated/regions.ld $(TRIPLE)
 
@@ -53,17 +59,18 @@ else
 	$(PYTHON) -m litex.soc.software.mkmscimg $@
 endif
 
-bios.elf: $(BIOS_DIRECTORY)/linker.ld $(OBJECTS)
+bios.elf: $(BIOS_DIRECTORY)/$(LSCRIPT) $(OBJECTS)
 
 vpath %.a $(PACKAGES:%=../%)
 
 %.elf: crt0.o $(LIBS:%=%.a)
-	$(CC) $(LDFLAGS) -T $(BIOS_DIRECTORY)/linker.ld -N -o $@ \
+	$(CC) $(LDFLAGS) -T $(BIOS_DIRECTORY)/$(LSCRIPT) -N -o $@ \
 		crt0.o \
 		$(OBJECTS) \
 		$(PACKAGES:%=-L../%) \
 		-Wl,--whole-archive \
 		-Wl,--gc-sections \
+		-Wl,-Map,$@.map \
 		$(LIBS:lib%=-l%) \
 
 
@@ -74,19 +81,12 @@ endif
 # pull in dependency info for *existing* .o files
 -include $(OBJECTS:.o=.d)
 
-%.o: $(BIOS_DIRECTORY)/%.c
+VPATH = $(BIOS_DIRECTORY):$(BIOS_DIRECTORY)/cmds:$(CPU_DIRECTORY)
+
+%.o: %.c
 	$(compile)
 
-%.o: $(BIOS_DIRECTORY)/cmds/%.c
-	$(compile)
-
-%.o: $(BIOS_DIRECTORY)/%.S
-	$(assemble)
-
-boot-helper.o: $(CPU_DIRECTORY)/boot-helper.S
-	$(assemble)
-
-crt0.o: $(CPU_DIRECTORY)/crt0.S
+%.o: %.S
 	$(assemble)
 
 clean:

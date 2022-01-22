@@ -113,7 +113,7 @@ video_timings = {
         "v_sync_width"  : 5,
     },
     "1920x1080@60Hz": {
-        "pix_clk"       : 148.35e6,
+        "pix_clk"       : 148.5e6,
         "h_active"      : 1920,
         "h_blanking"    : 280,
         "h_sync_offset" : 88,
@@ -963,7 +963,7 @@ class VideoS7GTPHDMIPHY(Module):
             self.comb += cdc.source.ready.eq(1) # No backpressure.
 
             # 20:1 Serialization + Differential Signaling.
-            c2d  = {"r": 2, "g": 1, "b": 0}
+            c2d  = {"r": 0, "g": 1, "b": 2}
             class GTPPads:
                 def __init__(self, p, n):
                     self.p = p

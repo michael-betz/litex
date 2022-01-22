@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 import subprocess
 import shutil
 import hashlib
@@ -9,9 +10,46 @@ import argparse
 
 import urllib.request
 
+start_time   = time.time()
 current_path = os.path.abspath(os.curdir)
 
-# Git Repositories ---------------------------------------------------------------------------------
+# Helpers ------------------------------------------------------------------------------------------
+
+def colorer(s, color="bright"): # FIXME: Move colorer to litex.common?
+    header  = {
+        "bright"    : "\x1b[1m",
+        "green"     : "\x1b[1m\x1b[32m",
+        "cyan"      : "\x1b[1m\x1b[36m",
+        "red"       : "\x1b[1m\x1b[31m",
+        "yellow"    : "\x1b[1m\x1b[33m",
+        "underline" : "\x1b[1m\x1b[4m"}[color]
+    trailer = "\x1b[0m"
+    return header + str(s) + trailer
+
+def print_banner():
+    b  = []
+    b.append("          __   _ __      _  __         ")
+    b.append("         / /  (_) /____ | |/_/         ")
+    b.append("        / /__/ / __/ -_)>  <           ")
+    b.append("       /____/_/\\__/\\__/_/|_|         ")
+    b.append("     Build your hardware, easily!      ")
+    b.append("          LiteX Setup utility.         ")
+    b.append("")
+    print("\n".join(b))
+
+def print_status(status):
+    exec_time = (time.time() - start_time)
+    print(colorer(f"[{exec_time:8.3f}]", color="green") + " " + colorer(status))
+
+def print_error(status):
+    exec_time = (time.time() - start_time)
+    print(colorer(f"[{exec_time:8.3f}]", color="red") + " " + colorer(status))
+
+class SetupError(Exception):
+    def __init__(self):
+        sys.stderr = None # Error already described, avoid traceback/exception.
+
+# Git repositories ---------------------------------------------------------------------------------
 
 # Get SHA1: git rev-parse --short=7 HEAD
 
@@ -64,9 +102,38 @@ git_repos = {
     "pythondata-cpu-blackparrot":  GitRepo(url="https://github.com/litex-hub/"),
     "pythondata-cpu-cv32e40p":     GitRepo(url="https://github.com/litex-hub/", clone="recursive"),
     "pythondata-cpu-ibex":         GitRepo(url="https://github.com/litex-hub/", clone="recursive", sha1=0xd3d53df),
+    "pythondata-cpu-marocchino":   GitRepo(url="https://github.com/litex-hub/"),
 }
 
-# Script Location / Auto-Update --------------------------------------------------------------------
+# Installs -----------------------------------------------------------------------------------------
+
+# Minimal: Only Migen + LiteX.
+minimal_repos = ["migen", "litex"]
+
+# Standard: Migen + LiteX + Cores + Software + Popular CPUs (LM32, Mor1kx, SERV, VexRiscv).
+standard_repos = list(git_repos.keys())
+standard_repos.remove("amaranth")
+standard_repos.remove("pythondata-cpu-picorv32")
+standard_repos.remove("pythondata-cpu-rocket")
+standard_repos.remove("pythondata-cpu-minerva")
+standard_repos.remove("pythondata-cpu-microwatt")
+standard_repos.remove("pythondata-cpu-blackparrot")
+standard_repos.remove("pythondata-cpu-cv32e40p")
+standard_repos.remove("pythondata-cpu-ibex")
+standard_repos.remove("pythondata-cpu-marocchino")
+
+# Full: Migen + LiteX + Cores + Software + All CPUs.
+full_repos = list(git_repos.keys())
+
+
+# Installs:
+install_configs = {
+    "minimal"  : minimal_repos,
+    "standard" : standard_repos,
+    "full"     : full_repos,
+}
+
+# Script location / auto-update --------------------------------------------------------------------
 
 def litex_setup_location_check():
     # Check if script is executed inside a cloned LiteX repository or alongside?
@@ -77,48 +144,61 @@ def litex_setup_location_check():
 def litex_setup_auto_update():
     litex_setup_url = "https://raw.githubusercontent.com/enjoy-digital/litex/master/litex_setup.py"
     current_sha1 = hashlib.sha1(open(os.path.realpath(__file__)).read().encode("utf-8")).hexdigest()
-    print("[Checking litex_setup.py]...")
+    print_status("LiteX Setup auto-update...")
     try:
         import requests
         r = requests.get(litex_setup_url)
         if r.status_code != 404:
             upstream_sha1 = hashlib.sha1(r.content).hexdigest()
             if current_sha1 != upstream_sha1:
-                print("[Updating litex_setup.py]...")
+                print_status("LiteX Setup is obsolete, updating.")
                 with open(os.path.realpath(__file__), "wb") as f:
                     f.write(r.content)
                 os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                print_status("LiteX Setup is up to date.")
     except:
         pass
 
-# Repositories Initialization ----------------------------------------------------------------------
+# Git repositories initialization ------------------------------------------------------------------
 
-def litex_setup_init_repos():
-    for name, repo in git_repos.items():
+def litex_setup_init_repos(config="standard", dev_mode=False):
+    print_status("Initializing Git repositories...")
+    print_status("--------------------------------")
+    for name in install_configs[config]:
+        repo = git_repos[name]
         os.chdir(os.path.join(current_path))
-        print(f"[Checking {name}]...")
         if not os.path.exists(name):
             # Clone Repo.
-            print(f"[Cloning {name}]...")
+            print_status(f"Cloning {name} Git repository...")
+            repo_url = repo.url
+            if dev_mode:
+                repo_url = repo_url.replace("https://github.com/", "git@github.com:")
             subprocess.check_call("git clone {url} {options}".format(
-                url     = repo.url + name,
+                url     = repo_url + name + ".git",
                 options = "--recursive" if repo.clone == "recursive" else ""
                 ), shell=True)
             # Use specific SHA1 (Optional).
             if repo.sha1 is not None:
                 os.chdir(os.path.join(current_path, name))
                 os.system(f"git checkout {repo.sha1:07x}")
+        else:
+            print_status(f"{name} Git Repo already present.")
 
-# Repositories Update ------------------------------------------------------------------------------
+# Git repositories update --------------------------------------------------------------------------
 
-def litex_setup_update_repos():
-    for name, repo in git_repos.items():
+def litex_setup_update_repos(config="standard"):
+    print_status("Updating Git repositories...")
+    print_status("----------------------------")
+    for name in install_configs[config]:
+        repo = git_repos[name]
         os.chdir(os.path.join(current_path))
         # Check if Repo is present.
         if not os.path.exists(name):
-            raise Exception("{} not initialized, please (re)-run init and install first.".format(name))
+            print_error(f"{name} Git repository is not initialized, please run --init first.")
+            raise SetupError
         # Update Repo.
-        print(f"[Updating {name}]...")
+        print_status(f"Updating {name} Git repository...")
         os.chdir(os.path.join(current_path, name))
         subprocess.check_call("git checkout " + repo.branch, shell=True)
         subprocess.check_call("git pull --ff-only", shell=True)
@@ -130,34 +210,39 @@ def litex_setup_update_repos():
             os.chdir(os.path.join(current_path, name))
             os.system(f"git checkout {repo.sha1:07x}")
 
-# Repositories Install -----------------------------------------------------------------------------
+# Git repositories install -------------------------------------------------------------------------
 
-def litex_setup_install_repos(user_mode=False):
-    for name, repo in git_repos.items():
+def litex_setup_install_repos(config="standard", user_mode=False):
+    print_status("Installing Git repositories...")
+    print_status("------------------------------")
+    for name in install_configs[config]:
+        repo = git_repos[name]
         os.chdir(os.path.join(current_path))
         # Install Repo.
         if repo.develop:
-            print(f"[Installing {name}]...")
+            print_status(f"Installing {name} Git repository...")
             os.chdir(os.path.join(current_path, name))
             subprocess.check_call("python3 setup.py develop {options}".format(
                 options="--user" if user_mode else "",
                 ), shell=True)
     if user_mode:
         if ".local/bin" not in os.environ.get("PATH", ""):
-            print("Make sure that ~/.local/bin is in your PATH")
-            print("export PATH=$PATH:~/.local/bin")
+            print_status("Make sure that ~/.local/bin is in your PATH")
+            print_status("export PATH=$PATH:~/.local/bin")
 
-# GCC Toolchains Download --------------------------------------------------------------------------
+# GCC toolchains download --------------------------------------------------------------------------
 
 def gcc_toolchain_download(url, filename):
+    print_status("Downloading GCC toolchain...")
+    print_status("----------------------------")
     if not os.path.exists(filename):
         full_url = url + filename
-        print(f"[Downloading {full_url} to {filename}]...")
+        print_status(f"Downloading {full_url} to {filename}...")
         urllib.request.urlretrieve(full_url, filename)
     else:
-        print("Using existing file {filename}.")
+        print_status(f"Using existing file {filename}.")
 
-    print(f"[Extracting {filename}]...")
+    print_status(f"Extracting {filename}...")
     shutil.unpack_archive(filename)
 
 # RISC-V toolchain.
@@ -218,19 +303,21 @@ def lm32_gcc_toolchain_download():
 # Run ----------------------------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="LiteX Setup utility.")
+    print_banner()
+    parser = argparse.ArgumentParser()
 
     # Git Repositories.
-    parser.add_argument("--init",      action="store_true", help="Initialize Git Repositories.")
-    parser.add_argument("--update",    action="store_true", help="Update Git Repositories.")
-    parser.add_argument("--install",   action="store_true", help="Install Git Repositories.")
+    parser.add_argument("--init",      action="store_true", help="Initialize Git repositories.")
+    parser.add_argument("--update",    action="store_true", help="Update Git repositories.")
+    parser.add_argument("--install",   action="store_true", help="Install Git repositories.")
     parser.add_argument("--user",      action="store_true", help="Install in User-Mode.")
+    parser.add_argument("--config",    default="standard",  help="Install config (minimal, standard, full).")
 
     # GCC toolchains.
     parser.add_argument("--gcc", default=None, help="Download/Extract GCC Toolchain (riscv, powerpc, openrisc or lm32).")
 
     # Development mode.
-    parser.add_argument("--dev", action="store_true", help="Development-Mode (no Auto-Update of litex_setup.py).")
+    parser.add_argument("--dev", action="store_true", help="Development-Mode (no Auto-Update of litex_setup.py / Switch to git@github.com URLs).")
 
     # Retro-compatibility.
     parser.add_argument("compat_args", nargs="*", help="Retro-Compatibility arguments (init, update, install or gcc).")
@@ -251,15 +338,15 @@ def main():
 
     # Init.
     if args.init:
-        litex_setup_init_repos()
+        litex_setup_init_repos(config=args.config, dev_mode=args.dev)
 
     # Update.
     if args.update:
-        litex_setup_update_repos()
+        litex_setup_update_repos(config=args.config)
 
     # Install.
     if args.install:
-        litex_setup_install_repos(user_mode=args.user)
+        litex_setup_install_repos(config=args.config, user_mode=args.user)
 
     # GCC.
     os.chdir(os.path.join(current_path))

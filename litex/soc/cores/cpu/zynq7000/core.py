@@ -12,7 +12,6 @@ from migen import *
 from migen.fhdl.specials import Tristate
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
-from litex.soc.interconnect import wishbone
 from litex.soc.interconnect import axi
 
 from litex.soc.cores.cpu import CPU
@@ -26,19 +25,23 @@ class Zynq7000(CPU):
     human_name           = "Zynq7000"
     data_width           = 32
     endianness           = "little"
-    reset_address        = 0x00000000
-    gcc_triple           = "arm-xilinx-eabi"
+    reset_address        = 0xfc00_0000
+    gcc_triple           = "arm-none-eabi"
+    gcc_flags            = "-mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard"
     linker_output_format = "elf32-littlearm"
     nop                  = "nop"
-    io_regions           = {0x00000000: 0x100000000} # Origin, Length.
+    io_regions           = {0x4000_0000: 0xbc00_0000} # Origin, Length.
 
     # Memory Mapping.
     @property
     def mem_map(self):
-        return {"csr": 0x00000000}
+        return {
+            "sram": 0x10_0000,  # DDR in fact
+            "rom":  0xfc00_0000,
+        }
 
-    def __init__(self, platform, variant):
-        platform.ps7_cfg    = {}
+    def __init__(self, platform, variant, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.platform       = platform
         self.reset          = Signal()
         self.periph_buses   = [] # Peripheral buses (Connected to main SoC's bus).
@@ -197,13 +200,22 @@ class Zynq7000(CPU):
         # Add configs to PS7.
         self.ps7_tcl.append("set_property -dict [list \\")
         for config, value in config.items():
-            self.ps7_tcl.append("CONFIG.{} {} \\".format(config, '{{' + value + '}}'))
+            self.ps7_tcl.append("CONFIG.{} {} \\".format(config, '{{' + str(value) + '}}'))
         self.ps7_tcl.append(f"] [get_ips {self.ps7_name}]")
 
     def set_ps7(self, name=None, xci=None, preset=None, config=None):
         # Check that PS7 has not already been set.
         if self.ps7_name is not None:
             raise Exception(f"PS7 has already been set to {self.ps7_name}.")
+        # when preset is a TCL file -> drop extension before using as the ps7 name
+        #                              and use absolute path
+        preset_tcl = False
+        if preset is not None:
+            preset_split = preset.split('.')
+            if len(preset_split) > 1 and preset_split[-1] == "tcl":
+                name = preset_split[0]
+                preset = os.path.abspath(preset)
+                preset_tcl = True
         self.ps7_name = preset if name is None else name
 
         # User should provide an .xci file, preset_name or config dict but not all at once.
@@ -219,7 +231,12 @@ class Zynq7000(CPU):
             self.ps7_tcl.append(f"set ps7 [create_ip -vendor xilinx.com -name processing_system7 -module_name {self.ps7_name}]")
             if preset is not None:
                 assert isinstance(preset, str)
-                self.ps7_tcl.append("set_property -dict [list CONFIG.preset {}] [get_ips {}]".format("{{" + preset + "}}", self.ps7_name))
+                if preset_tcl:
+                    self.ps7_tcl.append("source {}".format(preset))
+                    self.ps7_tcl.append("set ps7_cfg [apply_preset IPINST]")
+                    self.ps7_tcl.append("set_property -dict $ps7_cfg [get_ips {}]".format(self.ps7_name))
+                else:
+                    self.ps7_tcl.append("set_property -dict [list CONFIG.preset {}] [get_ips {}]".format("{{" + preset + "}}", self.ps7_name))
             if config is not None:
                 self.add_ps7_config(config)
 

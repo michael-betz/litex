@@ -86,9 +86,9 @@ CPU_SIZE_PARAMS = {
     "full4q":   (   256,      64,         4),
 }
 
-# Rocket RV64 --------------------------------------------------------------------------------------
+# Rocket  ------------------------------------------------------------------------------------------
 
-class RocketRV64(CPU):
+class Rocket(CPU):
     family               = "riscv"
     name                 = "rocket"
     human_name           = "RocketRV64[imac]"
@@ -98,7 +98,7 @@ class RocketRV64(CPU):
     gcc_triple           = CPU_GCC_TRIPLE_RISCV64
     linker_output_format = "elf64-littleriscv"
     nop                  = "nop"
-    io_regions           = {0x10000000: 0x70000000} # Origin, Length.
+    io_regions           = {0x12000000: 0x70000000} # Origin, Length.
 
     # Memory Mapping.
     @property
@@ -125,7 +125,7 @@ class RocketRV64(CPU):
         self.variant   = variant
 
         self.reset     = Signal()
-        self.interrupt = Signal(4)
+        self.interrupt = Signal(8)
 
         mem_dw, mmio_dw, num_cores = CPU_SIZE_PARAMS[self.variant]
 
@@ -311,7 +311,6 @@ class RocketRV64(CPU):
         self.add_sources(platform, variant)
 
     def set_reset_address(self, reset_address):
-        assert not hasattr(self, "reset_address")
         self.reset_address = reset_address
         assert reset_address == 0x10000000, "cpu_reset_addr hardcoded in during elaboration!"
 

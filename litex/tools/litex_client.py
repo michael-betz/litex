@@ -106,68 +106,75 @@ class RemoteClient(EtherboneIPC, CSRBuilder):
 
 # Utils --------------------------------------------------------------------------------------------
 
+def reg2addr(reg):
+    bus = RemoteClient()
+    if hasattr(bus.regs, reg):
+        return getattr(bus.regs, reg).addr
+    else:
+        raise ValueError(f"Register {reg} not present, exiting.")
+
 def dump_identifier(port):
-    wb = RemoteClient(port=port)
-    wb.open()
+    bus = RemoteClient(port=port)
+    bus.open()
 
     # On PCIe designs, CSR is remapped to 0 to limit BAR0 size.
-    if hasattr(wb.bases, "pcie_phy"):
-        wb.base_address = -wb.mems.csr.base
+    if hasattr(bus.bases, "pcie_phy"):
+        bus.base_address = -bus.mems.csr.base
 
     fpga_identifier = ""
 
     for i in range(256):
-        c = chr(wb.read(wb.bases.identifier_mem + 4*i) & 0xff)
+        c = chr(bus.read(bus.bases.identifier_mem + 4*i) & 0xff)
         fpga_identifier += c
         if c == "\0":
             break
 
     print(fpga_identifier)
 
-    wb.close()
+    bus.close()
 
 def dump_registers(port, filter=None):
-    wb = RemoteClient(port=port)
-    wb.open()
+    bus = RemoteClient(port=port)
+    bus.open()
 
     # On PCIe designs, CSR is remapped to 0 to limit BAR0 size.
-    if hasattr(wb.bases, "pcie_phy"):
-        wb.base_address = -wb.mems.csr.base
+    if hasattr(bus.bases, "pcie_phy"):
+        bus.base_address = -bus.mems.csr.base
 
-    for name, register in wb.regs.__dict__.items():
+    for name, register in bus.regs.__dict__.items():
         if (filter is None) or filter in name:
             print("0x{:08x} : 0x{:08x} {}".format(register.addr, register.read(), name))
 
-    wb.close()
+    bus.close()
 
 def read_memory(port, addr, length):
-    wb = RemoteClient(port=port)
-    wb.open()
+    bus = RemoteClient(port=port)
+    bus.open()
 
     for offset in range(length//4):
-        print(f"0x{addr + 4*offset:08x} : 0x{wb.read(addr + 4*offset):08x}")
+        print(f"0x{addr + 4*offset:08x} : 0x{bus.read(addr + 4*offset):08x}")
 
-    wb.close()
+    bus.close()
 
 def write_memory(port, addr, data):
-    wb = RemoteClient(port=port)
-    wb.open()
+    bus = RemoteClient(port=port)
+    bus.open()
 
-    wb.write(addr, data)
+    bus.write(addr, data)
 
-    wb.close()
+    bus.close()
 
 # Run ----------------------------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="LiteX Client utility.")
+    parser = argparse.ArgumentParser(description="LiteX Client utility.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--port",   default="1234",        help="Host bind port.")
     parser.add_argument("--ident",  action="store_true",   help="Dump SoC identifier.")
     parser.add_argument("--regs",   action="store_true",   help="Dump SoC registers.")
     parser.add_argument("--filter", default=None,          help="Registers filter (to be used with --regs).")
-    parser.add_argument("--read",   default=None,          help="Do a MMAP Read to SoC bus (--read addr)")
-    parser.add_argument("--write",  default=None, nargs=2, help="Do a MMAP Write to SoC bus (--write addr data)")
-    parser.add_argument("--length", default="4",           help="MMAP access length")
+    parser.add_argument("--read",   default=None,          help="Do a MMAP Read to SoC bus (--read addr/reg).")
+    parser.add_argument("--write",  default=None, nargs=2, help="Do a MMAP Write to SoC bus (--write addr/reg data).")
+    parser.add_argument("--length", default="4",           help="MMAP access length.")
     args = parser.parse_args()
 
     port = int(args.port, 0)
@@ -179,10 +186,18 @@ def main():
         dump_registers(port=port, filter=args.filter)
 
     if args.read:
-        read_memory(port=port, addr=int(args.read, 0), length=int(args.length, 0))
+        if isinstance(args.read, str):
+            addr = reg2addr(args.read)
+        else:
+            addr = int(args.read, 0)
+        read_memory(port=port, addr=addr, length=int(args.length, 0))
 
     if args.write:
-        write_memory(port=port, addr=int(args.write[0], 0), data=int(args.write[1], 0))
+        if isinstance(args.write[0], str):
+            addr = reg2addr(args.write[0])
+        else:
+            addr = int(args.write[0], 0)
+        write_memory(port=port, addr=addr, data=int(args.write[1], 0))
 
 if __name__ == "__main__":
     main()

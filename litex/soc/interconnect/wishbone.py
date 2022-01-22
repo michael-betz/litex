@@ -200,7 +200,7 @@ class Decoder(Module):
 
 class InterconnectShared(Module):
     def __init__(self, masters, slaves, register=False, timeout_cycles=1e6):
-        shared = Interface()
+        shared = Interface(data_width=masters[0].data_width)
         self.submodules.arbiter = Arbiter(masters, shared)
         self.submodules.decoder = Decoder(shared, slaves, register)
         if timeout_cycles is not None:

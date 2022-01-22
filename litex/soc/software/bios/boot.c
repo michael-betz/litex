@@ -64,7 +64,8 @@ void __attribute__((noreturn)) boot(unsigned long r1, unsigned long r2, unsigned
 	flush_cpu_dcache();
 	flush_l2_cache();
 
-#if defined(CONFIG_CPU_TYPE_MOR1KX) && defined(CONFIG_CPU_VARIANT_LINUX)
+#if (defined(CONFIG_CPU_TYPE_MOR1KX) || defined(CONFIG_CPU_TYPE_MAROCCHINO)) \
+     && defined(CONFIG_CPU_VARIANT_LINUX)
 	/* Mainline Linux expects to have exception vector base address set to the
 	 * base address of Linux kernel; it also expects to be run with an offset
 	 * of 0x100. */
@@ -812,9 +813,11 @@ void sdcardboot(void)
 {
 #ifdef CSR_SPISDCARD_BASE
 	printf("Booting from SDCard in SPI-Mode...\n");
+	fatfs_set_ops_spisdcard();	/* use spisdcard disk access ops */
 #endif
 #ifdef CSR_SDCORE_BASE
 	printf("Booting from SDCard in SD-Mode...\n");
+	fatfs_set_ops_sdcard();		/* use sdcard disk access ops */
 #endif
 
 	/* Boot from boot.json */
@@ -843,7 +846,7 @@ static int copy_file_from_sata_to_ram(const char * filename, unsigned long ram_a
 	FIL file;
 	uint32_t br;
 	uint32_t offset;
-	uint32_t length;
+	unsigned long length;
 
 	fr = f_mount(&fs, "", 1);
 	if (fr != FR_OK)
@@ -986,6 +989,7 @@ static void sataboot_from_bin(const char * filename)
 void sataboot(void)
 {
 	printf("Booting from SATA...\n");
+	fatfs_set_ops_sata();		/* use sata disk access ops */
 
 	/* Boot from boot.json */
 	printf("Booting from boot.json...\n");
