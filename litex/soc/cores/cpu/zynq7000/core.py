@@ -3,11 +3,13 @@
 #
 # Copyright (c) 2019-2020 Florent Kermarrec <florent@enjoy-digital.fr>
 # Copyright (c) 2020 Gwenhael Goavec-Merou <gwenhael.goavec-merou@trabucayre.com>
+# Copyright (c) 2020 Michael Betz <michibetz@gmail.com>
 # SPDX-License-Identifier: BSD-2-Clause
 
 import os
 
 from migen import *
+from migen.fhdl.specials import Tristate
 from migen.genlib.resetsync import AsyncResetSynchronizer
 
 from litex.soc.interconnect import axi
@@ -149,6 +151,40 @@ class Zynq7000(CPU):
         if ps7_sdio0_wp_pads is not None:
             self.cpu_params.update(i_SDIO0_WP = ps7_sdio0_wp_pads.wp)
 
+    # TODO compare this possibly redundant homebrew zynq config thingy against upstream litex functionality
+    def gen_ps7_ip(self, preset='ZedBoard'):
+        '''
+        To customize Zynq PS configuration, add key value pairs to
+        self.platform.ps7_cfg. Use vivado gui to find valid settings:
+          * open project: `build/gateware/*.xpr`
+          * open `ps7_cfg` in the project manager
+          * customize Peripheral I/O Pins / Fabric clocks / etc, OK
+          * Generate Output Products: Skip
+          * File, Project, Open Journal File
+          * Copy the lines starting with `set_proerty`, strip the `CONFIG.`
+            from the key and add them to ps7_cfg dict
+
+        TODO better integration with the litex build process
+        '''
+        print('gen_ps7_ip()', self.platform.ps7_cfg)
+        cmds = self.platform.toolchain.pre_synthesis_commands
+
+        preset = '{{' + preset + '}}'
+        cmds += [
+            'create_ip -name processing_system7 -vendor xilinx.com -library ip -version 5.5 -module_name ps7_cfg',
+            f'set_property -dict [list CONFIG.preset {preset}] [get_ips ps7_cfg]',
+        ]
+        for k, v in self.platform.ps7_cfg.items():
+            v = '{{' + v + '}}'
+            cmds.append(f'set_property CONFIG.{k} {v} [get_ips ps7_cfg]')
+
+        cmds += [
+            'upgrade_ip [get_ips ps7_cfg]',
+            'generate_target all [get_ips ps7_cfg]',
+            'set_msg_config -id {{Vivado 12-5447}} -new_severity {{Info}}',
+            'synth_ip [get_ips ps7_cfg]'
+        ]
+
     def set_ps7_xci(self, xci):
         # Add .xci as Vivado IP and set ps7_name from .xci filename.
         self.ps7_xci  = xci
@@ -220,8 +256,8 @@ class Zynq7000(CPU):
             f"i_M_AXI_GP{n}_AWREADY" : axi_gpn.aw.ready,
             f"o_M_AXI_GP{n}_AWADDR"  : axi_gpn.aw.addr,
             f"o_M_AXI_GP{n}_AWBURST" : axi_gpn.aw.burst,
-            f"o_M_AXI_GP{n}_AWLEN"   : axi_gpn.aw.len,
-            f"o_M_AXI_GP{n}_AWSIZE"  : axi_gpn.aw.size,
+            f"o_M_AXI_GP{n}_AWLEN"   : axi_gpn.aw.len[:4],
+            f"o_M_AXI_GP{n}_AWSIZE"  : axi_gpn.aw.size[:3],
             f"o_M_AXI_GP{n}_AWID"    : axi_gpn.aw.id,
             f"o_M_AXI_GP{n}_AWLOCK"  : axi_gpn.aw.lock,
             f"o_M_AXI_GP{n}_AWPROT"  : axi_gpn.aw.prot,
@@ -247,10 +283,10 @@ class Zynq7000(CPU):
             f"i_M_AXI_GP{n}_ARREADY" : axi_gpn.ar.ready,
             f"o_M_AXI_GP{n}_ARADDR"  : axi_gpn.ar.addr,
             f"o_M_AXI_GP{n}_ARBURST" : axi_gpn.ar.burst,
-            f"o_M_AXI_GP{n}_ARLEN"   : axi_gpn.ar.len,
+            f"o_M_AXI_GP{n}_ARLEN"   : axi_gpn.ar.len[:4],
             f"o_M_AXI_GP{n}_ARID"    : axi_gpn.ar.id,
             f"o_M_AXI_GP{n}_ARLOCK"  : axi_gpn.ar.lock,
-            f"o_M_AXI_GP{n}_ARSIZE"  : axi_gpn.ar.size,
+            f"o_M_AXI_GP{n}_ARSIZE"  : axi_gpn.ar.size[:3],
             f"o_M_AXI_GP{n}_ARPROT"  : axi_gpn.ar.prot,
             f"o_M_AXI_GP{n}_ARCACHE" : axi_gpn.ar.cache,
             f"o_M_AXI_GP{n}_ARQOS"   : axi_gpn.ar.qos,
@@ -330,6 +366,75 @@ class Zynq7000(CPU):
             f"o_S_AXI_HP{n}_RDATA"  : axi_hpn.r.data,
         })
         return axi_hpn
+
+    def add_emio_spi(self, spi_pads, n=0):
+        '''
+        Connect a PS SPI interfaces to some IO pads.
+        n selects which one (0 or 1).
+        '''
+        self.platform.ps7_cfg[f'CONFIG.PCW_SPI{n}_PERIPHERAL_ENABLE'] = '1'
+
+        p = spi_pads
+        for s, v in zip(["SCLK", "MOSI", "SS"], [p.clk, p.mosi, p.cs_n]):
+            self.cpu_params["o_SPI{}_{}_O".format(n, s)] = v
+        try:
+            miso = p.miso
+        except AttributeError:
+            print("add_emio_spi(): MISO pin hard-wired to 0")
+            miso = 0
+        self.cpu_params["i_SPI{}_MISO_I".format(n)] = miso
+
+        # ----------------
+        #  unused PS pins
+        # ----------------
+        for s, v in zip(["SCLK", "MOSI", "SS"], [0, 0, 1]):
+            self.cpu_params["i_SPI{}_{}_I".format(n, s)] = v
+        # o_SPI0_SS1_O=
+        # o_SPI0_SS2_O=
+        # o_SPI0_SCLK_T=
+        # o_SPI0_MOSI_T=
+        # o_SPI0_SS_T=
+
+    def add_emio_gpio(self, target_pads=None, N=32):
+        '''
+        Connect a PS GPIO interfaces to some IO pads.
+        N selects width of GPIO port.
+        '''
+        self.platform.ps7_cfg.update(
+            PCW_GPIO_EMIO_GPIO_ENABLE='1',
+            PCW_GPIO_EMIO_GPIO_IO=str(N)
+        )
+
+        GPIO_O = Signal(N)
+        GPIO_T = Signal(N)
+        GPIO_I = Signal(N)
+        self.cpu_params.update(
+            o_GPIO_O=GPIO_O,
+            o_GPIO_T=GPIO_T,
+            i_GPIO_I=GPIO_I
+        )
+        if target_pads:
+            self.specials += Tristate(target_pads, GPIO_O, ~GPIO_T, GPIO_I)
+
+    def add_emio_i2c(self, target_pads, n=0):
+        '''
+        Connect a PS I2C interfaces to some IO pads.
+        n selects which one (0 or 1).
+        '''
+        self.platform.ps7_cfg[f'PCW_I2C{n}_PERIPHERAL_ENABLE'] = '1'
+        for l in ('SDA', 'SCL'):
+            _I = Signal()
+            _O = Signal()
+            _T = Signal()
+            self.cpu_params["i_I2C{}_{}_I".format(n, l)] = _I
+            self.cpu_params["o_I2C{}_{}_O".format(n, l)] = _O
+            self.cpu_params["o_I2C{}_{}_T".format(n, l)] = _T
+            p = getattr(target_pads, l.lower())
+            self.specials += Tristate(p, _O, ~_T, _I)
+
+    # @staticmethod
+    # def add_sources(platform):
+    #     platform.add_ip(os.path.join("ip", self.ps7))
 
     def do_finalize(self):
         if self.ps7_name is None:

@@ -28,9 +28,9 @@ class I2CMaster(Module, AutoCSR):
             pads = Record(self.pads_layout)
         self.pads = pads
         self._w = CSRStorage(fields=[
-            CSRField("scl", size=1, offset=0),
+            CSRField("scl", size=1, offset=0, reset=1),
             CSRField("oe",  size=1, offset=1),
-            CSRField("sda", size=1, offset=2)],
+            CSRField("sda", size=1, offset=2, reset=1)],
             name="w")
         self._r = CSRStatus(fields=[
             CSRField("sda", size=1, offset=0)],
@@ -120,4 +120,6 @@ class SPIMaster(Module, AutoCSR):
         ]
         if hasattr(pads, "miso"):
             self.comb += self._r.fields.miso.eq(pads.miso)
+        else:
+            print('bitbang.SPIMaster: no MISO pin found :(')
         self.specials += Tristate(pads.mosi, _mosi_w, _mosi_oe, _mosi_r)

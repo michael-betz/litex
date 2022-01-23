@@ -197,6 +197,17 @@ def main():
     parser.add_argument("--usb-max-retries", default=10,             help="Number of USB reconecting retries.")
     args = parser.parse_args()
 
+    # Devmem arguments (for zynq)
+    parser.add_argument("--devmem", action="store_true",
+                        help="Select /dev/mem interface")
+    parser.add_argument(
+        "--devmem-offset",
+        default=0x40000000,
+        type=lambda x: int(x, 0),
+        help="/dev/mem address offset, gp0 is at 0x4000_0000"
+    )
+
+    args = parser.parse_args()
 
     # UART mode
     if args.uart:
@@ -261,7 +272,14 @@ def main():
         if vid is not None:
             vid = int(vid, base=0)
         comm = CommUSB(vid=vid, pid=pid, max_retries=args.usb_max_retries, debug=args.debug)
-
+    elif args.devmem:
+        from litex.tools.remote.comm_devmem import CommDevmem
+        print(
+            "[CommDevmem] /dev/mem @ {:x}/ ".format(args.devmem_offset),
+            end="",
+            flush=True
+        )
+        comm = CommDevmem(args.devmem_offset)
     else:
         parser.print_help()
         exit()

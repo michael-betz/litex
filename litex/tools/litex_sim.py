@@ -158,7 +158,7 @@ class SimSoC(SoCCore):
         sim_debug             = False,
         trace_reset_on        = False,
         **kwargs):
-        platform     = Platform()
+        self.platform = platform = Platform()
         sys_clk_freq = int(1e6)
 
         # SoCCore ----------------------------------------------------------------------------------

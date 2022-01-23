@@ -80,7 +80,7 @@ git_repos = {
     "litesdcard":   GitRepo(url="https://github.com/enjoy-digital/"),
     "liteiclink":   GitRepo(url="https://github.com/enjoy-digital/"),
     "litescope":    GitRepo(url="https://github.com/enjoy-digital/"),
-    "litejesd204b": GitRepo(url="https://github.com/enjoy-digital/"),
+    "litejesd204b": GitRepo(url="https://github.com/yetifrisstlama/"),
     "litespi":      GitRepo(url="https://github.com/litex-hub/"),
     "litehyperbus": GitRepo(url="https://github.com/litex-hub/"),
 
