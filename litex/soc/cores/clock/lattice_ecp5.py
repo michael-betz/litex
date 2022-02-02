@@ -10,7 +10,7 @@ from migen.genlib.resetsync import AsyncResetSynchronizer
 
 from litex.soc.cores.clock.common import *
 
-# Lattice / ECP5 -----------------------------------------------------------------------------------
+# Lattice / ECP5 PLL -------------------------------------------------------------------------------
 
 class ECP5PLL(Module):
     nclkouts_max    = 4
@@ -165,3 +165,61 @@ class ECP5PLL(Module):
             if f > 0:  # i.e. not a feedback-only clock
                 self.params["attr"].append((f"FREQUENCY_PIN_CLKO{n_to_l[n]}", str(f/1e6)))
         self.specials += Instance("EHXPLLL", **self.params)
+
+# Lattice / ECP5 Dynamic Delay ---------------------------------------------------------------------
+
+class ECP5DynamicDelay(Module):
+    tap_delay = 25e-12
+    ntaps     = 128
+
+    def __init__(self, i=None, o=None, taps=None):
+        self.i    = Signal() if i is None else i
+        self.o    = Signal() if o is None else o
+        self.taps = Signal(max=self.ntaps) if taps is None else taps
+
+        # # #
+
+        rst       = Signal()
+        move      = Signal()
+        done      = Signal()
+        change    = Signal()
+        curr_taps = Signal(max=self.ntaps)
+
+        # DELAYF Instance.
+        self.specials += Instance("DELAYF",
+            p_DEL_MODE  = "USER_DEFINED",
+            p_DEL_VALUE = self.taps.reset,
+            i_A         = self.i,
+            o_Z         = self.o,
+            i_LOADN     = ~(ResetSignal() | rst),
+            i_MOVE      = move,
+            i_DIRECTION = 0,
+            o_CFLAG     = Signal()
+        )
+
+        # FSM.
+        self.comb += done.eq(  self.taps == curr_taps)
+        self.comb += change.eq(self.taps != curr_taps)
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.act("IDLE",
+            If(change,
+                NextState("DELAYF-RST")
+            )
+        )
+        fsm.act("DELAYF-RST",
+            rst.eq(1),
+            NextValue(move,      0),
+            NextValue(curr_taps, 0),
+            NextState("DELAYF-MOVE")
+        )
+        fsm.act("DELAYF-MOVE",
+             If(done,
+                NextValue(move, 0),
+                NextState("IDLE")
+            ).Else(
+                NextValue(move, ~move),
+                If(move,
+                    NextValue(curr_taps, curr_taps + 1)
+                )
+            )
+        )

@@ -41,7 +41,7 @@ class EfinixPlatform(GenericPlatform):
         if toolchain == "efinity":
             self.toolchain = efinity.EfinityToolchain(self.efinity_path)
         else:
-            raise ValueError("Unknown toolchain")
+            raise ValueError(f"Unknown toolchain {toolchain}")
 
         self.parser = EfinixDbParser(self.efinity_path, self.device)
         self.pll_available = self.parser.get_block_instance_names('pll')
@@ -104,6 +104,7 @@ class EfinixPlatform(GenericPlatform):
                             if o.misc in ["WEAK_PULLUP", "WEAK_PULLDOWN"]:
                                 prop = "PULL_OPTION"
                                 val = o.misc
+                                ret.append((prop, val))
                             if "DRIVE_STRENGTH" in o.misc:
                                 prop = "DRIVE_STRENGTH"
                                 val = o.misc.split("=")[1]

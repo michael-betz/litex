@@ -203,6 +203,11 @@ class Builder:
             csr_base  = self.soc.mem_regions['csr'].origin)
         write_to_file(os.path.join(self.generated_dir, "csr.h"), csr_contents)
 
+        # Generate I2C command/value table
+        from litex.soc.cores.bitbang import collect_i2c_init
+        i2c_contents = export.get_i2c_header(collect_i2c_init(self.soc))
+        write_to_file(os.path.join(self.generated_dir, "i2c.h"), i2c_contents)
+
         # Generate Git SHA1 of tools to git.h
         git_contents = export.get_git_header()
         write_to_file(os.path.join(self.generated_dir, "git.h"), git_contents)
@@ -281,12 +286,19 @@ class Builder:
         self.soc.platform.output_dir = self.output_dir
 
         # Check if BIOS is used and add software package if so.
-        with_bios = self.soc.cpu_type not in [None, 'gowin_emcu']
+        with_bios = self.soc.cpu_type is not None
         if with_bios:
             self.add_software_package("bios")
 
         # Create Gateware directory.
         _create_dir(self.gateware_dir)
+
+        # Copy Sources to Gateware directory (Optional).
+        for i, (f, language, library, *copy) in enumerate(self.soc.platform.sources):
+            if len(copy) and copy[0]:
+                shutil.copy(f, self.gateware_dir)
+                f = os.path.basename(f)
+            self.soc.platform.sources[i] = (f, language, library)
 
         # Create Software directory.
         # First check if software needs a full re-build and remove software dir if so.

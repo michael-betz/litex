@@ -7,7 +7,7 @@
 
 import os
 
-from litex.build.generic_platform import GenericPlatform
+from litex.build.generic_platform import GenericPlatform, Pins
 from litex.build.altera import common, quartus
 
 # AlteraPlatform -----------------------------------------------------------------------------------
@@ -22,7 +22,7 @@ class AlteraPlatform(GenericPlatform):
         if toolchain == "quartus":
             self.toolchain = quartus.AlteraQuartusToolchain()
         else:
-            raise ValueError("Unknown toolchain")
+            raise ValueError(f"Unknown toolchain {toolchain}")
 
     def add_ip(self, filename):
         self.ips.add((os.path.abspath(filename)))
@@ -51,3 +51,12 @@ class AlteraPlatform(GenericPlatform):
         if hasattr(to, "p"):
             to = to.p
         self.toolchain.add_false_path_constraint(self, from_, to)
+
+    def add_reserved_jtag_decls(self):
+        self.add_extension([*[(pad, 0, Pins(pad)) for pad in common.altera_reserved_jtag_pads]])
+
+    def get_reserved_jtag_pads(self):
+        r = {}
+        for pad in common.altera_reserved_jtag_pads:
+            r[pad] = self.request(pad)
+        return r

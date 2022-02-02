@@ -36,6 +36,7 @@
 
 #include <libbase/spiflash.h>
 #include <libbase/uart.h>
+#include <libbase/i2c.h>
 
 #include <liblitedram/sdram.h>
 
@@ -91,7 +92,7 @@ static void boot_sequence(void)
 	printf("No boot medium found\n");
 }
 
-int main(int i, char **c)
+__attribute__((__used__)) int main(int i, char **c)
 {
 	char buffer[CMD_LINE_BUFFER_SIZE];
 	char *params[MAX_PARAM];
@@ -106,6 +107,10 @@ int main(int i, char **c)
 #endif
 #ifdef CSR_UART_BASE
 	uart_init();
+#endif
+
+#ifdef CSR_I2C_BASE
+	i2c_send_init_cmds();
 #endif
 
 #ifndef CONFIG_SIM_DISABLE_BIOS_PROMPT
