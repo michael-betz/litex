@@ -791,21 +791,22 @@ class SoC(Module):
                 colorer("declared", color="red")))
             raise SoCError()
 
-    def add_constant(self, name, value=None):
+    def add_constant(self, name, value=None, check_duplicate=True):
         name = name.upper()
         if name in self.constants.keys():
-            self.logger.error("{} Constant already {}.".format(
-                colorer(name),
-                colorer("declared", color="red")))
-            raise SoCError()
+            if check_duplicate:
+                self.logger.error("{} Constant already {}.".format(
+                    colorer(name),
+                    colorer("declared", color="red")))
+                raise SoCError()
         self.constants[name] = SoCConstant(value)
 
-    def add_config(self, name, value=None):
+    def add_config(self, name, value=None, check_duplicate=True):
         name = "CONFIG_" + name
         if isinstance(value, str):
-            self.add_constant(name + "_" + value)
+            self.add_constant(name + "_" + value, check_duplicate=check_duplicate)
         else:
-            self.add_constant(name, value)
+            self.add_constant(name, value, check_duplicate=check_duplicate)
 
     def check_bios_requirements(self):
         # Check for required Peripherals.
@@ -1358,20 +1359,20 @@ class LiteXSoC(SoC):
                     if port.data_width == mem_bus.data_width:
                         self.logger.info("Matching AXI MEM data width ({})\n".format(port.data_width))
                         self.submodules += LiteDRAMAXI2Native(
-                            axi          = self.cpu.mem_axi,
+                            axi          = mem_bus,
                             port         = port,
                             base_address = self.bus.regions["main_ram"].origin)
                     # If different data_width, do the adaptation and connect it via Wishbone.
                     else:
                         self.logger.info("Converting MEM data width: {} to {} via Wishbone".format(
                             port.data_width,
-                            self.cpu.mem_axi.data_width))
+                            mem_bus.data_width))
                         # FIXME: Replace WB data-width converter with native AXI converter.
                         mem_wb  = wishbone.Interface(
                             data_width = self.cpu.mem_axi.data_width,
-                            adr_width  = 32-log2_int(self.cpu.mem_axi.data_width//8))
+                            adr_width  = 32-log2_int(mem_bus.data_width//8))
                         mem_a2w = axi.AXI2Wishbone(
-                            axi          = self.cpu.mem_axi,
+                            axi          = mem_bus,
                             wishbone     = mem_wb,
                             base_address = 0)
                         self.submodules += mem_a2w
