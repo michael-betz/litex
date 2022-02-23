@@ -30,6 +30,7 @@ class EOS_S3(CPU):
     linker_output_format = "elf32-littlearm"
     nop                  = "nop"
     io_regions           = {0x4000_0000: 0xc000_0000}  # Origin, Length.
+    csr_decode           = False # Wishbone address is decoded before fabric.
 
     # Memory Mapping.
     @property

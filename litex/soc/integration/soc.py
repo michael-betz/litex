@@ -59,9 +59,10 @@ def SoCConstant(value):
 # SoCRegion ----------------------------------------------------------------------------------------
 
 class SoCRegion:
-    def __init__(self, origin=None, size=None, mode="rw", cached=True, linker=False):
+    def __init__(self, origin=None, size=None, mode="rw", cached=True, linker=False, decode=True):
         self.logger    = logging.getLogger("SoCRegion")
         self.origin    = origin
+        self.decode    = decode
         self.size      = size
         if size != 2**log2_int(size, False):
             self.logger.info("Region size {} internally from {} to {}.".format(
@@ -80,7 +81,7 @@ class SoCRegion:
             self.logger.error("Origin needs to be aligned on size:")
             self.logger.error(self)
             raise SoCError()
-        if (origin == 0) and (size == 2**bus.address_width):
+        if not self.decode or (origin == 0) and (size == 2**bus.address_width):
             return lambda a: True
         origin >>= int(log2(bus.data_width//8)) # bytes to words aligned.
         size   >>= int(log2(bus.data_width//8)) # bytes to words aligned.
@@ -878,7 +879,7 @@ class SoC(Module):
                 data_width    = self.csr.data_width),
             register=register)
         csr_size = 2**(self.csr.address_width + 2)
-        csr_region = SoCRegion(origin=origin, size=csr_size, cached=False)
+        csr_region = SoCRegion(origin=origin, size=csr_size, cached=False, decode=self.cpu.csr_decode)
         bus = getattr(self.csr_bridge, self.bus.standard.replace('-', '_'))
         self.bus.add_slave("csr", bus, csr_region)
         self.csr.add_master(name="bridge", master=self.csr_bridge.csr)
@@ -1355,19 +1356,31 @@ class LiteXSoC(SoC):
 
                 # Check if bus is an AXI bus and connect it.
                 if isinstance(mem_bus, axi.AXIInterface):
+                    data_width_ratio = int(port.data_width/mem_bus.data_width)
                     # If same data_width, connect it directly.
-                    if port.data_width == mem_bus.data_width:
-                        self.logger.info("Matching AXI MEM data width ({})\n".format(port.data_width))
+                    if data_width_ratio == 1:
                         self.submodules += LiteDRAMAXI2Native(
                             axi          = mem_bus,
                             port         = port,
-                            base_address = self.bus.regions["main_ram"].origin)
-                    # If different data_width, do the adaptation and connect it via Wishbone.
+                            base_address = self.bus.regions["main_ram"].origin
+                        )
+                    # UpConvert.
+                    elif data_width_ratio > 1:
+                        axi_port = axi.AXIInterface(
+                            data_width = port.data_width,
+                            id_width   = len(mem_bus.aw.id),
+                        )
+                        self.submodules += axi.AXIUpConverter(
+                            axi_from = mem_bus,
+                            axi_to   = axi_port,
+                        )
+                        self.submodules += LiteDRAMAXI2Native(
+                            axi          = axi_port,
+                            port         = port,
+                            base_address = self.bus.regions["main_ram"].origin
+                        )
+                    # DownConvert. FIXME: Pass through Wishbone for now, create/use native AXI converter.
                     else:
-                        self.logger.info("Converting MEM data width: {} to {} via Wishbone".format(
-                            port.data_width,
-                            mem_bus.data_width))
-                        # FIXME: Replace WB data-width converter with native AXI converter.
                         mem_wb  = wishbone.Interface(
                             data_width = self.cpu.mem_axi.data_width,
                             adr_width  = 32-log2_int(mem_bus.data_width//8))
@@ -1382,6 +1395,7 @@ class LiteXSoC(SoC):
                             port         = port,
                             base_address = self.bus.regions["main_ram"].origin)
                         self.submodules += wishbone.Converter(mem_wb, litedram_wb)
+
                 # Check if bus is a Native bus and connect it.
                 if isinstance(mem_bus, LiteDRAMNativePort):
                     # If same data_width, connect it directly.

@@ -824,6 +824,61 @@ class AXILiteSRAM(Module):
         self.submodules.fsm = fsm
         self.comb += comb
 
+# AXI Data Width Converter -------------------------------------------------------------------------
+
+class AXIUpConverter(Module):
+    def __init__(self, axi_from, axi_to):
+        dw_from  = len(axi_from.r.data)
+        dw_to    = len(axi_to.r.data)
+        ratio    = int(dw_to//dw_from)
+        assert dw_from*ratio == dw_to
+
+        # # #
+
+        # Note: Assuming size of "axi_from" burst >= "axi_to" data_width.
+
+        # Write path -------------------------------------------------------------------------------
+
+        # AW Channel.
+        self.comb += [
+            axi_from.aw.connect(axi_to.aw, omit={"len", "size"}),
+            axi_to.aw.len.eq( axi_from.aw.len >> log2_int(ratio)),
+            axi_to.aw.size.eq(axi_from.aw.size + log2_int(ratio)),
+        ]
+
+        # W Channel.
+        w_converter = stream.StrideConverter(
+            description_from = [("data", dw_from), ("strb", dw_from//8)],
+            description_to   = [("data",   dw_to), ("strb",   dw_to//8)],
+        )
+        self.submodules += w_converter
+        self.comb += axi_from.w.connect(w_converter.sink, omit={"id"})
+        self.comb += w_converter.source.connect(axi_to.w)
+        self.comb += axi_to.w.id.eq(axi_from.w.id)
+
+        # B Channel.
+        self.comb += axi_to.b.connect(axi_from.b)
+
+        # Read path --------------------------------------------------------------------------------
+
+        # AR Channel.
+        self.comb += [
+            axi_from.ar.connect(axi_to.ar, omit={"len", "size"}),
+            axi_to.ar.len.eq( axi_from.ar.len >> log2_int(ratio)),
+            axi_to.ar.size.eq(axi_from.ar.size + log2_int(ratio)),
+        ]
+
+        # R Channel.
+        r_converter = stream.StrideConverter(
+            description_from = [("data",   dw_to)],
+            description_to   = [("data", dw_from)],
+        )
+        self.submodules += r_converter
+        self.comb += axi_to.r.connect(r_converter.sink, omit={"id", "resp"})
+        self.comb += r_converter.source.connect(axi_from.r)
+        self.comb += axi_from.r.resp.eq(axi_to.r.resp)
+        self.comb += axi_from.r.id.eq(axi_to.r.id)
+
 # AXILite Data Width Converter ---------------------------------------------------------------------
 
 class _AXILiteDownConverterWrite(Module):

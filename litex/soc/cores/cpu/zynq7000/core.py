@@ -31,6 +31,7 @@ class Zynq7000(CPU):
     linker_output_format = "elf32-littlearm"
     nop                  = "nop"
     io_regions           = {0x4000_0000: 0xbc00_0000} # Origin, Length.
+    csr_decode           = False # AXI address is decoded in AXI2Wishbone (target level).
 
     # Memory Mapping.
     @property
@@ -44,12 +45,12 @@ class Zynq7000(CPU):
         super().__init__(*args, **kwargs)
         self.platform       = platform
         self.reset          = Signal()
-        self.periph_buses   = [] # Peripheral buses (Connected to main SoC's bus).
-        self.memory_buses   = [] # Memory buses (Connected directly to LiteDRAM).
+        self.periph_buses   = []    # Peripheral buses (Connected to main SoC's bus).
+        self.memory_buses   = []    # Memory buses (Connected directly to LiteDRAM).
 
-        self.axi_gp_masters = [] # General Purpose AXI Masters.
-        self.axi_gp_slaves  = [] # General Purpose AXI Slaves.
-        self.axi_hp_slaves  = [] # High Performance AXI Slaves.
+        self.axi_gp_masters = []    # General Purpose AXI Masters.
+        self.axi_gp_slaves  = []    # General Purpose AXI Slaves.
+        self.axi_hp_slaves  = []    # High Performance AXI Slaves.
 
         # # #
 

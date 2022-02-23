@@ -26,6 +26,7 @@ class ZynqMP(CPU):
         0x8000_0000: 0x4000_0000,
         0xe000_0000: 0xff_2000_0000  # TODO: there are more details here
     }
+    csr_decode           = False # AXI address is decoded in AXI2Wishbone (target level).
 
     @property
     def mem_map(self):
