@@ -36,12 +36,32 @@ class InterfaceWriter:
         self.efinity_path = efinity_path
         self.blocks       = []
         self.xml_blocks   = []
+        self.fix_xml      = []
         self.filename     = ""
         self.platform     = None
 
     def set_build_params(self, platform, build_name):
         self.filename = build_name
         self.platform = platform
+
+    def fix_xml_values(self):
+        et.register_namespace("efxpt", "http://www.efinixinc.com/peri_design_db")
+        tree = et.parse(self.filename + ".peri.xml")
+        root = tree.getroot()
+        for tag, name, values in self.fix_xml:
+            for e in tree.iter():
+                if (tag in e.tag) and (name == e.get("name")):
+                    for n, v in values:
+                        e.set(n, v)
+
+        xml_string = et.tostring(root, "utf-8")
+        reparsed = expatbuilder.parseString(xml_string, False)
+        print_string = reparsed.toprettyxml(indent="    ")
+
+        # Remove lines with only whitespaces. Not sure why they are here
+        print_string = os.linesep.join([s for s in print_string.splitlines() if s.strip()])
+
+        tools.write_to_file("{}.peri.xml".format(self.filename), print_string)
 
     def generate_xml_blocks(self):
         et.register_namespace("efxpt", "http://www.efinixinc.com/peri_design_db")
@@ -104,6 +124,16 @@ design.create("{2}", "{3}", "./../gateware", overwrite=True)
             if b["name"] == name:
                 return b
         return None
+
+    def generate_mipi_tx(self, block, verbose=True):
+        name = block["name"]
+        cmd = "# ---------- MIPI TX {} ---------\n".format(name)
+        cmd += f'design.create_block("{name}","MIPI_TX_LANE", mode="{block["mode"]}")\n'
+        for p, v in block["props"].items():
+            cmd += f'design.set_property("{name}","{p}","{v}","MIPI_TX_LANE")\n'
+        cmd += f'design.assign_resource("{name}","{block["ressource"]}","MIPI_TX_LANE")\n'
+        cmd += "# ---------- END MIPI TX {} ---------\n\n".format(name)
+        return cmd
 
     def generate_gpio(self, block, verbose=True):
         name = block["name"]
@@ -228,7 +258,7 @@ design.create("{2}", "{3}", "./../gateware", overwrite=True)
             if block["version"] == "V1_V2":
                 cmd += 'design.set_property("{}","CLKOUT{}_PHASE","{}","PLL")\n'.format(name, i, clock[2])
             else:
-                cmd += '# Phase shift needs to be implemented for PLL V3\n'
+                cmd += 'design.set_property("{}","CLKOUT{}_PHASE_SETTING","{}","PLL")\n'.format(name, i, clock[2] // 45)
 
         cmd += "target_freq = {\n"
         for i, clock in enumerate(block["clk_out"]):
@@ -269,6 +299,8 @@ design.create("{2}", "{3}", "./../gateware", overwrite=True)
                     output += self.generate_pll(block, partnumber)
                 if block["type"] == "GPIO":
                     output += self.generate_gpio(block)
+                if block["type"] == "MIPI_TX_LANE":
+                    output += self.generate_mipi_tx(block)
         return output
 
     def footer(self):
@@ -288,7 +320,7 @@ design.save()"""
             dir  = "rx"
             mode = "in"
 
-        pad = self.platform.parser.get_gpio_instance_from_pin(params["location"][0])
+        pad = self.platform.parser.get_pad_name_from_pin(params["location"][0])
         pad = pad.replace("TXP", "TX")
         pad = pad.replace("TXN", "TX")
         pad = pad.replace("RXP", "RX")
