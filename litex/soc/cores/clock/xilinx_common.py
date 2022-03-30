@@ -150,4 +150,4 @@ class XilinxClocking(Module, AutoCSR):
 
     def do_finalize(self):
         assert hasattr(self, "clkin")
-        self.add_reset_delay(cycles=8) # Prevents interlock when reset driven from sys_clk.
+        # self.add_reset_delay(cycles=8) # Prevents interlock when reset driven from sys_clk.
