@@ -8,6 +8,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import os
+import time
+import threading
 import argparse
 import socket
 
@@ -106,15 +108,15 @@ class RemoteClient(EtherboneIPC, CSRBuilder):
 
 # Utils --------------------------------------------------------------------------------------------
 
-def reg2addr(reg):
-    bus = RemoteClient()
+def reg2addr(csr_csv, reg):
+    bus = RemoteClient(csr_csv=csr_csv)
     if hasattr(bus.regs, reg):
         return getattr(bus.regs, reg).addr
     else:
         raise ValueError(f"Register {reg} not present, exiting.")
 
-def dump_identifier(port):
-    bus = RemoteClient(port=port)
+def dump_identifier(csr_csv, port):
+    bus = RemoteClient(csr_csv=csr_csv, port=port)
     bus.open()
 
     # On PCIe designs, CSR is remapped to 0 to limit BAR0 size.
@@ -133,8 +135,8 @@ def dump_identifier(port):
 
     bus.close()
 
-def dump_registers(port, filter=None):
-    bus = RemoteClient(port=port)
+def dump_registers(csr_csv, port, filter=None):
+    bus = RemoteClient(csr_csv=csr_csv, port=port)
     bus.open()
 
     # On PCIe designs, CSR is remapped to 0 to limit BAR0 size.
@@ -147,8 +149,8 @@ def dump_registers(port, filter=None):
 
     bus.close()
 
-def read_memory(port, addr, length):
-    bus = RemoteClient(port=port)
+def read_memory(csr_csv, port, addr, length):
+    bus = RemoteClient(csr_csv=csr_csv, port=port)
     bus.open()
 
     for offset in range(length//4):
@@ -156,11 +158,69 @@ def read_memory(port, addr, length):
 
     bus.close()
 
-def write_memory(port, addr, data):
-    bus = RemoteClient(port=port)
+def write_memory(csr_csv, port, addr, data):
+    bus = RemoteClient(csr_csv=csr_csv, port=port)
     bus.open()
 
     bus.write(addr, data)
+
+    bus.close()
+
+# Gui ----------------------------------------------------------------------------------------------
+
+def run_gui(csr_csv, port):
+    import dearpygui.dearpygui as dpg
+
+    bus = RemoteClient(csr_csv=csr_csv, port=port)
+    bus.open()
+
+    def reboot_callback():
+        bus.regs.ctrl_reset.write(1)
+        bus.regs.ctrl_reset.write(0)
+
+    dpg.create_context()
+    dpg.create_viewport(title="LiteX CLI GUI", max_width=800, always_on_top=True)
+    dpg.setup_dearpygui()
+
+    with dpg.window(autosize=True):
+        dpg.add_text("Control/Status")
+        dpg.add_button(label="Reboot", callback=reboot_callback)
+        def filter_callback(sender, filter_str):
+            dpg.set_value("csr_filter", filter_str)
+        dpg.add_input_text(label="CSR Filter (inc, -exc)", callback=filter_callback)
+        dpg.add_text("CSR Registers:")
+        with dpg.filter_set(id="csr_filter"):
+            def reg_callback(tag, data):
+                for name, reg in  bus.regs.__dict__.items():
+                    if (tag == name):
+                        try:
+                            reg.write(int(data, 0))
+                        except:
+                            pass
+            for name, reg in bus.regs.__dict__.items():
+                dpg.add_input_text(
+                    indent     = 16,
+                    label      = f"0x{reg.addr:08x} - {name}",
+                    tag        = name,
+                    filter_key =name,
+                    callback   = reg_callback,
+                    on_enter   = True,
+                    width      = 200
+                )
+
+    def timer_callback(refresh=1e-1):
+        while True:
+            for name, reg in bus.regs.__dict__.items():
+                value = reg.read()
+                dpg.set_value(item=name, value=f"0x{reg.read():x}")
+            time.sleep(refresh)
+
+    timer_thread = threading.Thread(target=timer_callback)
+    timer_thread.start()
+
+    dpg.show_viewport()
+    dpg.start_dearpygui()
+    dpg.destroy_context()
 
     bus.close()
 
@@ -168,36 +228,42 @@ def write_memory(port, addr, data):
 
 def main():
     parser = argparse.ArgumentParser(description="LiteX Client utility.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--port",   default="1234",        help="Host bind port.")
-    parser.add_argument("--ident",  action="store_true",   help="Dump SoC identifier.")
-    parser.add_argument("--regs",   action="store_true",   help="Dump SoC registers.")
-    parser.add_argument("--filter", default=None,          help="Registers filter (to be used with --regs).")
-    parser.add_argument("--read",   default=None,          help="Do a MMAP Read to SoC bus (--read addr/reg).")
-    parser.add_argument("--write",  default=None, nargs=2, help="Do a MMAP Write to SoC bus (--write addr/reg data).")
-    parser.add_argument("--length", default="4",           help="MMAP access length.")
+    parser.add_argument("--csr-csv", default="csr.csv",     help="CSR configuration file")
+    parser.add_argument("--port",    default="1234",        help="Host bind port.")
+    parser.add_argument("--ident",   action="store_true",   help="Dump SoC identifier.")
+    parser.add_argument("--regs",    action="store_true",   help="Dump SoC registers.")
+    parser.add_argument("--filter",  default=None,          help="Registers filter (to be used with --regs).")
+    parser.add_argument("--read",    default=None,          help="Do a MMAP Read to SoC bus (--read addr/reg).")
+    parser.add_argument("--write",   default=None, nargs=2, help="Do a MMAP Write to SoC bus (--write addr/reg data).")
+    parser.add_argument("--length",  default="4",           help="MMAP access length.")
+    parser.add_argument("--gui",     action="store_true",   help="Run Gui.")
     args = parser.parse_args()
 
-    port = int(args.port, 0)
+    csr_csv = args.csr_csv
+    port    = int(args.port, 0)
 
     if args.ident:
-        dump_identifier(port=port)
+        dump_identifier(csr_csv=csr_csv, port=port)
 
     if args.regs:
-        dump_registers(port=port, filter=args.filter)
+        dump_registers(csr_csv=csr_csv, port=port, filter=args.filter)
 
     if args.read:
         if isinstance(args.read, str):
-            addr = reg2addr(args.read)
+            addr = reg2addr(csr_csv, args.read)
         else:
             addr = int(args.read, 0)
-        read_memory(port=port, addr=addr, length=int(args.length, 0))
+        read_memory(csr_csv=csr_csv, port=port, addr=addr, length=int(args.length, 0))
 
     if args.write:
         if isinstance(args.write[0], str):
-            addr = reg2addr(args.write[0])
+            addr = reg2addr(csr_csv, args.write[0])
         else:
             addr = int(args.write[0], 0)
-        write_memory(port=port, addr=addr, data=int(args.write[1], 0))
+        write_memory(csr_csv=csr_csv, port=port, addr=addr, data=int(args.write[1], 0))
+
+    if args.gui:
+        run_gui(csr_csv=csr_csv, port=port)
 
 if __name__ == "__main__":
     main()

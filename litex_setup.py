@@ -85,7 +85,6 @@ git_repos = {
     "litescope":    GitRepo(url="https://github.com/enjoy-digital/"),
     "litejesd204b": GitRepo(url="https://github.com/yetifrisstlama/"),
     "litespi":      GitRepo(url="https://github.com/litex-hub/"),
-    "litehyperbus": GitRepo(url="https://github.com/litex-hub/"),
 
     # LiteX Boards.
     "litex-boards": GitRepo(url="https://github.com/litex-hub/", clone="regular"),
@@ -130,7 +129,6 @@ standard_repos.remove("pythondata-cpu-marocchino")
 
 # Full: Migen + LiteX + Cores + Software + All CPUs.
 full_repos = list(git_repos.keys())
-
 
 # Installs:
 install_configs = {
@@ -225,7 +223,7 @@ def litex_setup_install_repos(config="standard", user_mode=False):
         if repo.develop:
             print_status(f"Installing {name} Git repository...")
             os.chdir(os.path.join(current_path, name))
-            subprocess.check_call("{python3} setup.py develop {options}".format(
+            subprocess.check_call("{python3} -m pip install --editable . {options}".format(
                 python3 = sys.executable,
                 options = "--user" if user_mode else "",
                 ), shell=True)
@@ -234,16 +232,28 @@ def litex_setup_install_repos(config="standard", user_mode=False):
             print_status("Make sure that ~/.local/bin is in your PATH")
             print_status("export PATH=$PATH:~/.local/bin")
 
-# Git repositories status --------------------------------------------------------------------------
+# Git repositories freeze --------------------------------------------------------------------------
 
-def litex_setup_status_repos(config="standard"):
-    print_status("Getting status of Git repositories...", underline=True)
+def litex_setup_freeze_repos(config="standard"):
+    print_status("Freezing config of Git repositories...", underline=True)
+    r = "git_repos = {\n"
     for name in install_configs[config]:
         repo = git_repos[name]
         os.chdir(os.path.join(current_path, name))
         git_sha1_cmd = ["git", "rev-parse", "--short=7", "HEAD"]
-        git_sha1     = subprocess.check_output(git_sha1_cmd).decode("UTF-8")
-        print(f"{name}: sha1=0x{git_sha1}", end="")
+        git_sha1     = subprocess.check_output(git_sha1_cmd).decode("UTF-8")[:-1]
+        git_url_cmd  = ["git", "remote", "get-url", "origin"]
+        git_url      = subprocess.check_output(git_url_cmd).decode("UTF-8")[:-1]
+        git_url      = git_url.replace(f"{name}.git", "")
+        r += " "*4
+        r += f'"{name}" : GitRepo(url="{git_url}",\n'
+        r += f'{" "*8}clone   = "{repo.clone}",\n'
+        r += f'{" "*8}develop = {repo.develop},\n'
+        r += f'{" "*8}sha1    = 0x{git_sha1},\n'
+        r += f'{" "*8}branch  = "{repo.branch}"'
+        r += f'\n{" "*4}),\n'
+    r += "}\n"
+    print(r)
 
 # GCC toolchains download --------------------------------------------------------------------------
 
@@ -326,7 +336,7 @@ def main():
     parser.add_argument("--install",   action="store_true", help="Install Git repositories.")
     parser.add_argument("--user",      action="store_true", help="Install in User-Mode.")
     parser.add_argument("--config",    default="standard",  help="Install config (minimal, standard, full).")
-    parser.add_argument("--status",    action="store_true", help="Display Git status of repositories.")
+    parser.add_argument("--freeze",    action="store_true", help="Freeze and display current config.")
 
     # GCC toolchains.
     parser.add_argument("--gcc", default=None, help="Download/Extract GCC Toolchain (riscv, powerpc, openrisc or lm32).")
@@ -363,9 +373,9 @@ def main():
     if args.install:
         litex_setup_install_repos(config=args.config, user_mode=args.user)
 
-    # Status.
-    if args.status:
-        litex_setup_status_repos(config=args.config)
+    # Freeze.
+    if args.freeze:
+        litex_setup_freeze_repos(config=args.config)
 
     # GCC.
     os.chdir(os.path.join(current_path))

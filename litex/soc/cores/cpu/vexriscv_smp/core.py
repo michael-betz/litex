@@ -63,7 +63,7 @@ class VexRiscvSMP(CPU):
     # Command line configuration arguments.
     @staticmethod
     def args_fill(parser):
-        cpu_group = parser.add_argument_group("cpu")
+        cpu_group = parser.add_argument_group(title="CPU options")
         cpu_group.add_argument("--cpu-count",                    default=1,           help="Number of CPU(s) in the cluster.", type=int)
         cpu_group.add_argument("--with-coherent-dma",            action="store_true", help="Enable Coherent DMA Slave interface.")
         cpu_group.add_argument("--without-coherent-dma",         action="store_true", help="Disable Coherent DMA Slave interface.")
@@ -282,8 +282,12 @@ class VexRiscvSMP(CPU):
         self.jtag_tdo         = Signal()
         self.jtag_tdi         = Signal()
         self.interrupt        = Signal(32)
-        self.pbus             = pbus    = wishbone.Interface()
-
+        self.pbus             = pbus = wishbone.Interface(data_width={
+            # Always 32-bit when using direct LiteDRAM interfaces.
+            False : 32,
+            # Else max of I/DCache-width.
+            True  : max(VexRiscvSMP.icache_width, VexRiscvSMP.dcache_width),
+        }[VexRiscvSMP.wishbone_memory])
         self.periph_buses     = [pbus] # Peripheral buses (Connected to main SoC's bus).
         self.memory_buses     = []     # Memory buses (Connected directly to LiteDRAM).
 
@@ -375,6 +379,16 @@ class VexRiscvSMP(CPU):
         platform.add_source(os.path.join(vdir,  self.cluster_name + ".v"), "verilog")
 
     def add_soc_components(self, soc, soc_region_cls):
+        # Set UART/Timer0 CSRs/IRQs to the ones used by OpenSBI.
+        soc.csr.add("uart",   n=2)
+        soc.csr.add("timer0", n=3)
+
+        soc.irq.add("uart",   n=0)
+        soc.irq.add("timer0", n=1)
+
+        # Add OpenSBI region.
+        soc.add_memory_region("opensbi", self.mem_map["main_ram"] + 0x00f00000, 0x80000, type="cached+linker")
+
         # Define number of CPUs
         soc.add_config("CPU_COUNT", VexRiscvSMP.cpu_count)
         soc.add_constant("CPU_ISA", VexRiscvSMP.get_arch())

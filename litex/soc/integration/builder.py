@@ -359,11 +359,23 @@ class Builder:
 
         return vns
 
+    def get_bios_filename(self):
+         return os.path.join(self.software_dir, "bios", "bios.bin")
+
+    def get_bitstream_filename(self, mode="sram", ext=None):
+        assert mode in ["sram", "flash"]
+        if ext is None:
+            ext = {
+                "sram"  : self.soc.platform.bitstream_ext,
+                "flash" : ".bin" # FIXME.
+            }[mode]
+        return os.path.join(self.gateware_dir, self.soc.build_name + ext)
+
 # Builder Arguments --------------------------------------------------------------------------------
 
 def builder_args(parser):
     parser.formatter_class = lambda prog: argparse.ArgumentDefaultsHelpFormatter(prog, max_help_position=10, width=120)
-    builder_group = parser.add_argument_group("builder")
+    builder_group = parser.add_argument_group(title="Builder options")
     builder_group.add_argument("--output-dir",          default=None,        help="Base Output directory.")
     builder_group.add_argument("--gateware-dir",        default=None,        help="Output directory for Gateware files.")
     builder_group.add_argument("--software-dir",        default=None,        help="Output directory for Software files.")

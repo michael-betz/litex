@@ -6,9 +6,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 import os
+import sys
 import math
 import subprocess
-from shutil import which
+from shutil import which, copyfile
 
 from migen.fhdl.structure import _Fragment
 
@@ -67,6 +68,9 @@ def _build_tcl(name, partnumber, files, options):
 
     # Add Sources.
     for f, typ, lib in files:
+        # Support windows/powershell
+        if sys.platform == "win32": 
+            f = f.replace("\\", "\\\\")
         tcl.append(f"add_file {f}")
 
     # Set Options.
@@ -122,8 +126,8 @@ class GowinToolchain:
         cwd = os.getcwd()
         os.makedirs(build_dir, exist_ok=True)
         os.chdir(build_dir)
-        # Finalize design
 
+        # Finalize design
         if not isinstance(fragment, _Fragment):
             fragment = fragment.get_fragment()
         platform.finalize(fragment)
@@ -161,13 +165,26 @@ class GowinToolchain:
 
         # Run
         if run:
-            if which("gw_sh") is None:
+            # Support Powershell/WSL platform
+            # Some python distros for windows (e.g, oss-cad-suite)
+            # which does not have 'os.uname' support, we should check 'sys.platform' firstly.
+            gw_sh = "gw_sh"
+            if sys.platform.find("linux") >= 0:
+                if os.uname().release.find("WSL") > 0:
+                    gw_sh += ".exe"
+            if which(gw_sh) is None:
                 msg = "Unable to find Gowin toolchain, please:\n"
                 msg += "- Add Gowin toolchain to your $PATH."
                 raise OSError(msg)
 
-            if subprocess.call(["gw_sh", "run.tcl"]) != 0:
+            if subprocess.call([gw_sh, "run.tcl"]) != 0:
                 raise OSError("Error occured during Gowin's script execution.")
+
+            # Copy Bitstream to from impl to gateware directory.
+            copyfile(
+                os.path.join(build_dir, "impl", "pnr", "project.fs"),
+                os.path.join(build_dir, build_name + ".fs")
+            )
 
         os.chdir(cwd)
 

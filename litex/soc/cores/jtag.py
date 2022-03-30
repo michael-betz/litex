@@ -308,7 +308,7 @@ class XilinxJTAG(Module):
         prim_dict = {
             # Primitive Name   Ðevice (startswith)
             "BSCAN_SPARTAN6" : ["xc6"],
-            "BSCANE2"        : ["xc7", "xcku", "xcvu"],
+            "BSCANE2"        : ["xc7", "xcku", "xcvu", "xczu"],
         }
         for prim, prim_devs in prim_dict.items():
             for prim_dev in prim_devs:
@@ -401,7 +401,7 @@ class JTAGPHY(Module):
         if jtag is None:
             # Xilinx.
             if XilinxJTAG.get_primitive(device) is not None:
-                jtag = XilinxJTAG(primitive=XilinxJTAG.get_primitive(device))
+                jtag = XilinxJTAG(primitive=XilinxJTAG.get_primitive(device), chain=chain)
             # Lattice.
             elif device[:5] == "LFE5U":
                 jtag = ECP5JTAG()
