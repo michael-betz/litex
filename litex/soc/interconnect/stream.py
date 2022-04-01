@@ -242,7 +242,7 @@ class AsyncFIFO(_FIFOWrapper):
 # ClockDomainCrossing ------------------------------------------------------------------------------
 
 class ClockDomainCrossing(Module):
-    def __init__(self, layout, cd_from="sys", cd_to="sys", depth=None, with_common_rst=True):
+    def __init__(self, layout, cd_from="sys", cd_to="sys", depth=None, with_common_rst=False):
         self.sink   = Endpoint(layout)
         self.source = Endpoint(layout)
         # # #
@@ -254,6 +254,7 @@ class ClockDomainCrossing(Module):
         # Different Clk Domains.
         else:
             if with_common_rst:
+                # FIXME: Graycounter stops receinving clock in simulation
                 # Create intermediate Clk Domains and generate a common Rst.
                 _cd_rst  = Signal()
                 _cd_from = ClockDomain("from")

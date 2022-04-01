@@ -25,11 +25,11 @@ def compat_notice(name, date, info=""):
         info       = info,
     ), end="")
     # Annoy user to force update :)
-    for i in range(10):
-        time.sleep(0.2)
-        print(".", end="")
-        sys.stdout.flush()
-    print("thanks :)")
+    # for i in range(10):
+    #     time.sleep(0.2)
+    #     print(".", end="")
+    #     sys.stdout.flush()
+    # print("thanks :)")
 
 def add_compat(location):
     # Integration.
