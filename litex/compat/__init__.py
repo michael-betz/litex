@@ -29,7 +29,7 @@ def compat_notice(name, date, info=""):
     #     time.sleep(0.2)
     #     print(".", end="")
     #     sys.stdout.flush()
-    print("thanks :)")
+    # print("thanks :)")
 
 def add_compat(location):
     # Integration.

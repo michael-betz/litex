@@ -254,6 +254,7 @@ class ClockDomainCrossing(Module):
         # Different Clk Domains.
         else:
             if with_common_rst:
+                # FIXME: Graycounter stops receinving clock in simulation
                 # Create intermediate Clk Domains and generate a common Rst.
                 _cd_rst  = Signal()
                 _cd_from = ClockDomain("from")
