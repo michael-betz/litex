@@ -72,17 +72,17 @@ git_repos = {
     # LiteX SoC builder
     "pythondata-software-picolibc":    GitRepo(url="https://github.com/litex-hub/", clone="recursive"),
     "pythondata-software-compiler_rt": GitRepo(url="https://github.com/litex-hub/"),
-    "litex":                           GitRepo(url="https://github.com/enjoy-digital/"),
+    "litex":                           GitRepo(url="https://github.com/yetifrisstlama/", branch="yfl"),
 
     # LiteX Cores Ecosystem.
-    "liteeth":      GitRepo(url="https://github.com/enjoy-digital/"),
+    "liteeth":      GitRepo(url="https://github.com/yetifrisstlama/", branch="yfl"),
     "litedram":     GitRepo(url="https://github.com/enjoy-digital/"),
     "litepcie":     GitRepo(url="https://github.com/enjoy-digital/"),
     "litesata":     GitRepo(url="https://github.com/enjoy-digital/"),
     "litesdcard":   GitRepo(url="https://github.com/enjoy-digital/"),
     "liteiclink":   GitRepo(url="https://github.com/enjoy-digital/"),
     "litescope":    GitRepo(url="https://github.com/enjoy-digital/"),
-    "litejesd204b": GitRepo(url="https://github.com/enjoy-digital/"),
+    "litejesd204b": GitRepo(url="https://github.com/yetifrisstlama/"),
     "litespi":      GitRepo(url="https://github.com/litex-hub/"),
 
     # LiteX Boards.
@@ -144,23 +144,24 @@ def litex_setup_location_check():
         current_path = os.path.join(current_path, "../")
 
 def litex_setup_auto_update():
-    litex_setup_url = "https://raw.githubusercontent.com/enjoy-digital/litex/master/litex_setup.py"
-    current_sha1 = hashlib.sha1(open(os.path.realpath(__file__)).read().encode("utf-8")).hexdigest()
-    print_status("LiteX Setup auto-update...")
-    try:
-        import requests
-        r = requests.get(litex_setup_url)
-        if r.status_code != 404:
-            upstream_sha1 = hashlib.sha1(r.content).hexdigest()
-            if current_sha1 != upstream_sha1:
-                print_status("LiteX Setup is obsolete, updating.")
-                with open(os.path.realpath(__file__), "wb") as f:
-                    f.write(r.content)
-                os.execl(python3, python3, *sys.argv)
-            else:
-                print_status("LiteX Setup is up to date.")
-    except:
-        pass
+    print_status("LiteX Setup auto-update is disabled")
+    # litex_setup_url = "https://raw.githubusercontent.com/enjoy-digital/litex/master/litex_setup.py"
+    # current_sha1 = hashlib.sha1(open(os.path.realpath(__file__)).read().encode("utf-8")).hexdigest()
+    # print_status("LiteX Setup auto-update...")
+    # try:
+    #     import requests
+    #     r = requests.get(litex_setup_url)
+    #     if r.status_code != 404:
+    #         upstream_sha1 = hashlib.sha1(r.content).hexdigest()
+    #         if current_sha1 != upstream_sha1:
+    #             print_status("LiteX Setup is obsolete, updating.")
+    #             with open(os.path.realpath(__file__), "wb") as f:
+    #                 f.write(r.content)
+    #             os.execl(python3, python3, *sys.argv)
+    #         else:
+    #             print_status("LiteX Setup is up to date.")
+    # except:
+    #     pass
 
 # Git repositories initialization ------------------------------------------------------------------
 
@@ -175,8 +176,9 @@ def litex_setup_init_repos(config="standard", dev_mode=False):
             repo_url = repo.url
             if dev_mode:
                 repo_url = repo_url.replace("https://github.com/", "git@github.com:")
-            subprocess.check_call("git clone {url} {options}".format(
+            subprocess.check_call("git clone {url} {options} -b {branch}".format(
                 url     = repo_url + name + ".git",
+                branch  = repo.branch,
                 options = "--recursive" if repo.clone == "recursive" else ""
                 ), shell=True)
             # Use specific SHA1 (Optional).

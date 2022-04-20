@@ -142,4 +142,6 @@ class SPIMaster(Module, AutoCSR):
         ]
         if hasattr(pads, "miso"):
             self.comb += self._r.fields.miso.eq(pads.miso)
+        else:
+            print('bitbang.SPIMaster: no MISO pin found :(')
         self.specials += Tristate(pads.mosi, _mosi_w, _mosi_oe, _mosi_r)

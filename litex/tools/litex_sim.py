@@ -142,6 +142,7 @@ class SimSoC(SoCCore):
         with_ethernet         = False,
         ethernet_phy_model    = "sim",
         with_etherbone        = False,
+        with_etherbone64      = False,
         etherbone_mac_address = 0x10e2d5000001,
         etherbone_ip_address  = "192.168.1.51",
         with_analyzer         = False,
@@ -158,7 +159,7 @@ class SimSoC(SoCCore):
         sim_debug             = False,
         trace_reset_on        = False,
         **kwargs):
-        platform     = Platform()
+        self.platform = platform = Platform()
         sys_clk_freq = int(1e6)
 
         # SoCCore ----------------------------------------------------------------------------------
@@ -200,7 +201,7 @@ class SimSoC(SoCCore):
                 self.add_constant("MEMTEST_ADDR_SIZE", 8*1024)
 
         # Ethernet / Etherbone PHY -----------------------------------------------------------------
-        if with_ethernet or with_etherbone:
+        if with_ethernet or with_etherbone or with_etherbone64:
             if ethernet_phy_model == "sim":
                 self.submodules.ethphy = LiteEthPHYModel(self.platform.request("eth", 0))
             elif ethernet_phy_model == "xgmii":
@@ -254,6 +255,26 @@ class SimSoC(SoCCore):
                 ip_address  = etherbone_ip_address,
                 mac_address = etherbone_mac_address
             )
+        # Etherbone --------------------------------------------------------------------------------
+        elif with_etherbone64:
+            ethcore = LiteEthUDPIPCore(
+                phy=self.ethphy,
+                mac_address=etherbone_mac_address,
+                ip_address=etherbone_ip_address,
+                clk_freq=self.clk_freq,
+                dw=self.ethphy.dw,
+                anti_underflow=0
+            )
+            self.submodules.ethcore = ethcore
+
+            self.submodules.etherbone = LiteEthEtherbone(
+                self.ethcore.udp,
+                1234,
+                buffer_depth=16
+            )
+            # self.bus.add_master(master=self.etherbone.wishbone.bus)
+            self.submodules.sram = wishbone.SRAM(1024)
+            self.comb += self.etherbone.wishbone.bus.connect(self.sram.bus)
 
         # I2C --------------------------------------------------------------------------------------
         if with_i2c:
@@ -369,6 +390,7 @@ def sim_args(parser):
     parser.add_argument("--with-ethernet",        action="store_true",     help="Enable Ethernet support.")
     parser.add_argument("--ethernet-phy-model",   default="sim",           help="Ethernet PHY to simulate (sim, xgmii or gmii).")
     parser.add_argument("--with-etherbone",       action="store_true",     help="Enable Etherbone support.")
+    parser.add_argument("--with-etherbone64",     action="store_true",     help="Enable 64 bit Etherbone support.")
     parser.add_argument("--local-ip",             default="192.168.1.50",  help="Local IP address of SoC.")
     parser.add_argument("--remote-ip",            default="192.168.1.100", help="Remote IP address of TFTP server.")
     parser.add_argument("--with-analyzer",        action="store_true",     help="Enable Analyzer support.")
@@ -427,7 +449,7 @@ def main():
             ram_boot_address         = get_boot_address(args.sdram_init)
 
     # Ethernet.
-    if args.with_ethernet or args.with_etherbone:
+    if args.with_ethernet or args.with_etherbone or args.with_etherbone64:
         if args.ethernet_phy_model == "sim":
             sim_config.add_module("ethernet", "eth", args={"interface": "tap0", "ip": args.remote_ip})
         elif args.ethernet_phy_model == "xgmii":
@@ -447,6 +469,7 @@ def main():
         with_ethernet      = args.with_ethernet,
         ethernet_phy_model = args.ethernet_phy_model,
         with_etherbone     = args.with_etherbone,
+        with_etherbone64   = args.with_etherbone64,
         with_analyzer      = args.with_analyzer,
         with_i2c           = args.with_i2c,
         with_sdcard        = args.with_sdcard,

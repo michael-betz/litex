@@ -1049,11 +1049,11 @@ class SoC(Module):
                 self.comb += If(getattr(self.ctrl, "soc_rst", 0), crg_rst.eq(1))
 
         # SoC CSR bridge ---------------------------------------------------------------------------
-        # FIXME: for now, use registered CSR bridge when SDRAM is present; find the best compromise.
+        # Always use registered CSR bridge ... otherwise zed_vvm fails timing
         self.add_csr_bridge(
-            name     = "csr",
-            origin   = self.mem_map["csr"],
-            register = hasattr(self, "sdram")
+            name="csr",
+            origin=self.mem_map["csr"],
+            register=True  # hasattr(self, "sdram"))
         )
 
         # SoC Bus Interconnect ---------------------------------------------------------------------

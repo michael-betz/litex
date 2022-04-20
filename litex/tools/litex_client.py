@@ -49,6 +49,10 @@ class RemoteClient(EtherboneIPC, CSRBuilder):
         del self.socket
 
     def read(self, addr, length=None, burst="incr"):
+        """
+        addr = start address in [bytes], should be 32 bit aligned
+        length = number of 32 bit words to read. Maximum is 255.
+        """
         length_int = 1 if length is None else length
         # Prepare packet
         record = EtherboneRecord()
@@ -70,6 +74,22 @@ class RemoteClient(EtherboneIPC, CSRBuilder):
             for i, data in enumerate(datas):
                 print("read 0x{:08x} @ 0x{:08x}".format(data, self.base_address + addr + 4*i))
         return datas[0] if length is None else datas
+
+    def big_read(self, addr, length, chunk_size=255):
+        """
+        read data of arbitrary length in chunks
+        addr = start address in [bytes], should be 32 bit aligned
+        length = number of 32 bit words to read
+        chunk_size = how many words to read in one Etherbone transaction
+        """
+        dats = []
+        while length > 0:
+            temp = self.read(addr, min(chunk_size, length))
+            dats.append(temp)
+            addr += len(temp) * 4
+            length -= len(temp)
+        # return hstack(dats)
+        return [i for dat in dats for i in dat]
 
     def write(self, addr, datas):
         datas = datas if isinstance(datas, list) else [datas]
@@ -229,17 +249,17 @@ def main():
         dump_registers(csr_csv=csr_csv, port=port, filter=args.filter)
 
     if args.read:
-        if isinstance(args.read, str):
-            addr = reg2addr(csr_csv, args.read)
-        else:
-            addr = int(args.read, 0)
+        try:
+            addr = int(args.read[0], 0)
+        except ValueError:
+            addr = reg2addr(csr_csv, args.read[0])
         read_memory(csr_csv=csr_csv, port=port, addr=addr, length=int(args.length, 0))
 
     if args.write:
-        if isinstance(args.write[0], str):
-            addr = reg2addr(csr_csv, args.write[0])
-        else:
+        try:
             addr = int(args.write[0], 0)
+        except ValueError:
+            addr = reg2addr(csr_csv, args.write[0])
         write_memory(csr_csv=csr_csv, port=port, addr=addr, data=int(args.write[1], 0))
 
     if args.gui:
