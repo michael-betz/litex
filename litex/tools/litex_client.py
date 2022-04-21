@@ -252,7 +252,7 @@ def main():
         try:
             addr = int(args.read, 0)
         except ValueError:
-            addr = reg2addr(csr_csv, args.read[0])
+            addr = reg2addr(csr_csv, args.read)
         read_memory(csr_csv=csr_csv, port=port, addr=addr, length=int(args.length, 0))
 
     if args.write:
