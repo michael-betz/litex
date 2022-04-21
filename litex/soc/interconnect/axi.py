@@ -28,6 +28,16 @@ RESP_EXOKAY    = 0b01
 RESP_SLVERR    = 0b10
 RESP_DECERR    = 0b11
 
+AXSIZE = {
+     1 : 0b000,
+     2 : 0b001,
+     4 : 0b010,
+     8 : 0b011,
+    16 : 0b100,
+    32 : 0b110,
+    64 : 0b111,
+}
+
 def ax_description(address_width, id_width):
     return [
         ("addr",  address_width),
@@ -182,10 +192,12 @@ def r_lite_description(data_width):
     ]
 
 class AXILiteInterface:
-    def __init__(self, data_width=32, address_width=32, clock_domain="sys", name=None):
+    def __init__(self, data_width=32, address_width=32, clock_domain="sys", name=None, bursting=False):
         self.data_width    = data_width
         self.address_width = address_width
         self.clock_domain  = clock_domain
+        if bursting is not False:
+            raise NotImplementedError("AXI-Lite does not support bursting")
 
         self.aw = stream.Endpoint(ax_lite_description(address_width), name=name)
         self.w  = stream.Endpoint(w_lite_description(data_width), name=name)
